@@ -1,0 +1,9 @@
+{
+  "loss": 0.0063154567033052444,
+  "residual_loss": 0.003146498929709196,
+  "reconst_loss": 0.15844789147377014,
+  "prediction_loss": 0.10150276124477386,
+  "sparsity_loss": 3.1649982929229736,
+  "A_max_eigenvalue": 1.0004115104675293,
+  "sparsity_ratio": 0.0
+}

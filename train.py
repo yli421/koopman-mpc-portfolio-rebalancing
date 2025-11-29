@@ -271,6 +271,8 @@ def train(
         dt = cfg.ENV.PARABOLIC.DT
     elif env_name == 'lyapunov':
         dt = cfg.ENV.LYAPUNOV.DT
+    elif env_name == 'finance':  
+        dt = 1.0
     else:
         dt = 0.01  # default fallback
     
@@ -552,7 +554,7 @@ def main():
                         help='Training configuration preset')
     parser.add_argument('--env', type=str, default='duffing',
                         choices=['duffing', 'pendulum', 'lotka_volterra', 
-                                'lorenz63', 'parabolic', 'lyapunov'],
+                                'lorenz63', 'parabolic', 'lyapunov', 'finance'],
                         help='Dynamical system environment')
     
     # Training

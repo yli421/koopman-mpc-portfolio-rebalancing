@@ -171,16 +171,56 @@ class LyapunovConfig:
 
 
 @dataclass
+class FinanceConfig:
+    """
+    Configuration for the NYSE(N) Dataset (23 Stocks, 1985-2010).
+    Note: Tickers mapped to modern equivalents where possible from NYSE (N) dataset description form paper J. Li et al.,
+    """
+    # The 23 stocks from your list, mapped to modern Yahoo Tickers:
+    TICKERS: List[str] = field(default_factory=lambda: [
+        "AA",   # alcoa
+        "KO",   # coke
+        "CMC",  # comm_metals
+        "DD",   # Dupont
+        "F",    # ford
+        "GE",   # ge
+        "GM",   # gm (Note: This will be New GM data, might be missing <2010)
+        "HPQ",  # hp
+        "IBM",  # ibm
+        "TT",   # ingersoll (Trane Technologies / Ingersoll Rand split)
+        "JNJ",  # jnj
+        "KMB",  # kimb-clark
+        "KODK", # Kodak
+        "MRK",  # merck
+        "MMM",  # mmm
+        "MO",   # morris (Altria)
+        "PG",   # p_and_g
+        "SLB",  # schlum
+        "SHW",  # sher_will
+        # Defunct/Acquired/Hard to map via API:
+        # "AHP", "AMER_BRANDS", "DOW_CHEM", "KIN_ARK" -> Omitted to prevent API errors
+    ])
+    
+    # Exact period from data description form paper J. Li et al.,
+    START_DATE: str = "1985-01-01"
+    END_DATE: str = "2010-06-30"
+    INTERVAL: str = "1d"
+    
+    # Feature Engineering
+    INCLUDE_TIME_INDEX: bool = False 
+
+
+@dataclass
 class EnvConfig:
     """Environment configuration."""
-    ENV_NAME: str = "duffing"  # from ["duffing", "parabolic", "pendulum", "lotka_volterra", "lorenz63"]
+    ENV_NAME: str = "duffing"  # from ["duffing", "parabolic", "pendulum", "lotka_volterra", "lorenz63", "finance"]
     PARABOLIC: ParabolicConfig = field(default_factory=ParabolicConfig)
     DUFFING: DuffingConfig = field(default_factory=DuffingConfig)
     PENDULUM: PendulumConfig = field(default_factory=PendulumConfig)
     LOTKA_VOLTERRA: LotkaVolterraConfig = field(default_factory=LotkaVolterraConfig)
     LORENZ63: Lorenz63Config = field(default_factory=Lorenz63Config)
     LYAPUNOV: LyapunovConfig = field(default_factory=LyapunovConfig)
-
+    FINANCE: FinanceConfig = field(default_factory=FinanceConfig)
 
 @dataclass
 class ListaConfig:

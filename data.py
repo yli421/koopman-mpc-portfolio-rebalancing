@@ -10,6 +10,10 @@ from typing import Optional, Callable
 import torch
 from config import Config
 
+import yfinance as yf
+import pandas as pd
+import numpy as np
+
 
 # ---------------------------------------------------------------------------
 # Base Environment Classes
@@ -558,6 +562,90 @@ class LyapunovMultiAttractor(Env):
 
         return integrate_rk4(state, None, self.dt, dynamics_fn)
 
+
+# ---------------------------------------------------------------------------
+# Financial Data Environment (NYSE(N))
+# ---------------------------------------------------------------------------
+
+
+class FinanceEnvironment:
+    """
+    NYSE(N) Environment for Koopman Training.
+    State: Price Relatives (Daily Returns + 1) - from paper J. Li et al., "DMD for Online Portfolio Selection".
+    """
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.tickers = cfg.ENV.FINANCE.TICKERS
+        self.start = cfg.ENV.FINANCE.START_DATE
+        self.end = cfg.ENV.FINANCE.END_DATE
+        
+        print(f"[FinanceEnv] Fetching NYSE(N) data ({self.start} to {self.end})...")
+        
+        # 1. Download Data 
+        raw_df = yf.download(
+            self.tickers, 
+            start=self.start, 
+            end=self.end, 
+            interval="1d",
+            auto_adjust=True, # handles stock splits/dividends over 26 years 
+            progress=False
+        )['Close']
+        
+        # 2. Data Cleaning
+        # Drop columns that have too much missing data 
+        # Threshold: Must have data for at least 90% of the timeframe
+        valid_cols = raw_df.columns[raw_df.notna().sum() > len(raw_df) * 0.9]
+        self.clean_df = raw_df[valid_cols].ffill().bfill()
+        
+        dropped = set(self.tickers) - set(valid_cols)
+        if dropped:
+            print(f"[FinanceEnv] Warning: Dropped {len(dropped)} tickers due to missing history: {dropped}")
+            
+        # 3. Compute Price Relatives, x_t = Price_t / Price_{t-1}
+        self.price_relatives = self.clean_df.pct_change().fillna(0).values + 1.0
+        
+        # 4. To Tensor
+        self.data = torch.tensor(self.price_relatives, dtype=torch.float32)
+        self.num_timesteps, self.num_assets = self.data.shape
+        self.observation_size = self.num_assets
+        
+        # 5. Time Indexing (Critical for sequential training)
+        if cfg.ENV.FINANCE.INCLUDE_TIME_INDEX:
+            self.observation_size += 1
+            t_idx = torch.linspace(0, 1, self.num_timesteps).unsqueeze(1)
+            self.data = torch.cat([self.data, t_idx], dim=1)
+            
+        print(f"[FinanceEnv] Final Dataset: {self.num_timesteps} days x {self.num_assets} stocks")
+
+    def reset(self, rng: torch.Generator) -> torch.Tensor:
+        # Return a random day from history (excluding last day)
+        idx = torch.randint(0, self.num_timesteps - 1, (1,), generator=rng).item()
+        return self.data[idx]
+    
+    def step(self, state: torch.Tensor, action: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """
+        Return the next day's data.
+        Uses F.embedding for vmap-safe indexing.
+        """
+        # 1. Ensure the data table is on the same device as the incoming state (CPU vs GPU)
+        if self.data.device != state.device:
+            self.data = self.data.to(state.device)
+
+        # 2. Recover integer time index from normalized feature
+        t_norm = state[..., -1]
+        t_idx = (t_norm * (self.num_timesteps - 1)).long()
+        
+        # 3. Get next step index (clamp to avoid out-of-bounds)
+        next_t_idx = torch.clamp(t_idx + 1, max=self.num_timesteps - 1)
+        
+        # 4. Use embedding lookup instead of self.data[next_t_idx]
+        # This prevents the "vmap .item()" error
+        return torch.nn.functional.embedding(next_t_idx, self.data)
+        
+    def get_full_trajectory(self):
+        return self.data
+    
+
 # ---------------------------------------------------------------------------
 # Registry and Factory
 # ---------------------------------------------------------------------------
@@ -570,6 +658,7 @@ _ENV_REGISTRY = {
     "lorenz63": Lorenz63,
     "parabolic": Parabolic,
     "lyapunov": LyapunovMultiAttractor,
+    "finance": FinanceEnvironment,
 }
 
 
