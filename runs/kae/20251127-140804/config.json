@@ -1,0 +1,66 @@
+{
+  "SEED": 0,
+  "ENV": {
+    "ENV_NAME": "duffing",
+    "PARABOLIC": {
+      "LAMBDA": -1.0,
+      "MU": -0.1,
+      "DT": 0.1
+    },
+    "DUFFING": {
+      "DT": 0.01
+    },
+    "PENDULUM": {
+      "DT": 0.01
+    },
+    "LOTKA_VOLTERRA": {
+      "DT": 0.01
+    },
+    "LORENZ63": {
+      "DT": 0.01
+    },
+    "LYAPUNOV": {
+      "DT": 0.05,
+      "SIGMA": 0.5
+    }
+  },
+  "MODEL": {
+    "MODEL_NAME": "GenericKM",
+    "NORM_FN": "id",
+    "TARGET_SIZE": 64,
+    "RES_COEFF": 1.0,
+    "RECONST_COEFF": 0.5,
+    "PRED_COEFF": 0.0,
+    "SPARSITY_COEFF": 0.01,
+    "ENCODER": {
+      "LAYERS": [
+        64,
+        64
+      ],
+      "LAST_RELU": true,
+      "USE_BIAS": true,
+      "ACTIVATION": "relu",
+      "LISTA": {
+        "NUM_LOOPS": 10,
+        "L": 1000.0,
+        "ALPHA": 0.1,
+        "LINEAR_ENCODER": false
+      }
+    },
+    "DECODER": {
+      "LAYERS": [],
+      "USE_BIAS": false,
+      "ACTIVATION": "relu"
+    }
+  },
+  "TRAIN": {
+    "NUM_STEPS": 20000,
+    "BATCH_SIZE": 256,
+    "DATA_SIZE": 2048,
+    "LR": 0.0001,
+    "WEIGHT_DECAY": 0.0001,
+    "K_MATRIX_LR": 1e-05,
+    "USE_SEQUENCE_LOSS": false,
+    "SEQUENCE_LENGTH": 10
+  }
+}
