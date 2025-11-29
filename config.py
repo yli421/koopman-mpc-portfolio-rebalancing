@@ -207,7 +207,7 @@ class FinanceConfig:
     INTERVAL: str = "1d"
     
     # Feature Engineering
-    INCLUDE_TIME_INDEX: bool = True 
+    INCLUDE_TIME_INDEX: bool = False 
 
 
 @dataclass
