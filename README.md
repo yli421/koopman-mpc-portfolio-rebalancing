@@ -80,11 +80,11 @@ uv run python train.py \
 
 # Evaluation from checkpoints
 # Required: specify system
-python evaluate_checkpoints.py --run_dir runs/kae/<CHANGE_THIS> --system duffing
+python evaluate_checkpoints.py --run_dir runs/kae/<timestamp> --system duffing
 
 # With other options
-python evaluate_checkpoints.py --run_dir runs/kae/<CHANGE_THIS> --system pendulum --device cpu
-python evaluate_checkpoints.py --run_dir runs/kae/<CHANGE_THIS> --system lorenz63 --checkpoints checkpoint.pt
+python evaluate_checkpoints.py --run_dir runs/kae/<timestamp> --system pendulum --device cpu
+python evaluate_checkpoints.py --run_dir runs/kae/<timestamp> --system lorenz63 --checkpoints checkpoint.pt
 ```
 
 ## Repository Structure
