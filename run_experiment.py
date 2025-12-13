@@ -40,7 +40,7 @@ def main():
         run_dir = Path(args.path)
     else:
         # Find latest run automatically
-        search_dirs = [Path("runs/kae"), Path("runs/kae_finance")]
+        search_dirs = [Path("runs/kae_finance"), Path("runs/kae")]
         latest_run = None
         latest_time = None
         
@@ -59,7 +59,7 @@ def main():
                         continue
         
         if latest_run is None:
-            raise ValueError("Could not find any valid run directories in runs/kae or runs/kae_finance")
+            raise ValueError("Could not find any valid run directories in runs/kae_finance or runs/kae")
             
         run_dir = latest_run
         print(f"Automatically selected latest run: {run_dir}")

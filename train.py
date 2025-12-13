@@ -778,7 +778,7 @@ def train(
     
     # Setup logging directory and save config
     if log_dir is None:
-        log_dir = './runs/kae'
+        log_dir = './runs/kae_finance'
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     run_dir = Path(log_dir) / timestamp
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -1124,7 +1124,7 @@ def main():
                         help='Sequence length for sequence training (overrides config default)')
     
     # Logging
-    parser.add_argument('--log_dir', type=str, default='./runs/kae',
+    parser.add_argument('--log_dir', type=str, default='./runs/kae_finance',
                         help='Directory for logs and checkpoints')
     parser.add_argument('--checkpoint', type=str, default=None,
                         help='Path to checkpoint to resume from')
