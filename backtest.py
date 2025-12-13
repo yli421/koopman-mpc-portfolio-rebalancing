@@ -217,6 +217,8 @@ def run_backtest(
         
         # 3. Simulate Market Step (t -> t+1)
         # Realized return at t+1 (using data at t+1)
+        port_ret = 0.0
+        
         # Note: all_returns[t+1] is the return from t to t+1
         if t + 1 < len(all_returns):
             realized_log_ret = all_returns[t+1]
@@ -236,7 +238,7 @@ def run_backtest(
         history.append({
             'date': env.test_dataset.dates[t],
             'portfolio_value': portfolio_value,
-            'return': port_ret if t+1 < len(all_returns) else 0.0,
+            'return': port_ret,
             'turnover': turnover,
             'cost': cost
         })
