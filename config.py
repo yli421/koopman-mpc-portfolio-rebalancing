@@ -461,8 +461,10 @@ def get_train_finance_sparse_config() -> Config:
     cfg.MODEL.DECODER.USE_BIAS = False
     
     # Loss weights (tuned for finance)
-    cfg.MODEL.RES_COEFF = 0.1      # Lower alignment to prevent zero-collapse
-    cfg.MODEL.RECONST_COEFF = 10.0  # High recon to force learning features
+    RES_COEFF: float = 1.0  # alignment loss weight
+    RECONST_COEFF: float = 0.02
+    cfg.MODEL.RES_COEFF = 1.0      # Lower alignment to prevent zero-collapse
+    cfg.MODEL.RECONST_COEFF = 0.02  # High recon to force learning features
     cfg.MODEL.PRED_COEFF = 1.0     # Prediction loss (important for forecasting)
     cfg.MODEL.SPARSITY_COEFF = 0.0  # Disable sparsity initially to prevent collapse
     
