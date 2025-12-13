@@ -64,38 +64,6 @@ class BuyAndHoldStrategy(Strategy):
             return np.ones(n_assets) / n_assets
         return current_weights
 
-class MarkowitzStrategy(Strategy):
-    """Rolling Mean-Variance Optimization Strategy."""
-    
-    def __init__(self, risk_aversion: float = 1.0, cost_coeff: float = 0.001):
-        self.risk_aversion = risk_aversion
-        self.cost_coeff = cost_coeff
-        
-    def rebalance(self, t, current_weights, env, lookback_window=60):
-        # Need historical log returns up to t
-        # Access underlying data from test_dataset
-        # Note: This accesses "future" data relative to start of test, 
-        # but "past" relative to current time t.
-        
-        # In FinanceEnv, data is pre-embedded. 
-        # We need raw log returns. 
-        # We can reconstruct them or use a helper if available.
-        # For simplicity, we'll assume we can access the full log_returns array 
-        # and slice it up to t.
-        
-        # Hack: recover log returns from embedded data for simplicity
-        # or use the fact that we have the full dataset.
-        
-        # Let's use a simpler approach: 
-        # We assume the env has a way to get past returns.
-        # For this implementation, we will pass the full returns array to the backtester
-        # and slice it here.
-        pass # Implemented inside run_backtest context usually, but here we mock
-        
-        # Placeholder for now as Markowitz requires solving a QP similar to MPC
-        # We can reuse the MPC solver with gamma > 0 and horizon = 1
-        return current_weights 
-
 class KoopmanMPCStrategy(Strategy):
     """Koopman-MPC Strategy."""
     
