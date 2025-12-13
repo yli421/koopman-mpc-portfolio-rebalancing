@@ -24,6 +24,8 @@ dependencies = [
     "yfinance>=0.2.66",
     "pandas>=2.3.3",
     "seaborn>=0.13.2",
+    "cvxpy>=1.7.5",
+    "pyarrow>=20.0.0",
 ]
 
 [project.optional-dependencies]
@@ -41,6 +43,7 @@ py-modules = [
     "models",
     "losses",
     "data",
+    "data_finance",
     "train",
     "eval",
     "evaluation",

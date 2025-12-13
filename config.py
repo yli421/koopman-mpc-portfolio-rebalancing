@@ -127,8 +127,23 @@ Config
 
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
-from typing import List
+from typing import List, Optional
 import json
+
+
+# Default universe of liquid US stocks (diverse sectors)
+DEFAULT_FINANCE_TICKERS = [
+    # Technology
+    "AAPL", "MSFT", "GOOGL", "AMZN", "META",
+    # Finance
+    "JPM", "BAC", "GS", "V", "MA",
+    # Healthcare
+    "JNJ", "UNH", "PFE", "ABBV",
+    # Consumer
+    "PG", "KO", "PEP", "WMT",
+    # Energy & Industrials
+    "XOM", "CVX",
+]
 
 
 @dataclass
@@ -171,15 +186,40 @@ class LyapunovConfig:
 
 
 @dataclass
+class FinanceConfig:
+    """Finance environment configuration for portfolio rebalancing.
+    
+    Attributes:
+        TICKERS: List of stock tickers to use
+        START_DATE: Start date for data download (YYYY-MM-DD)
+        END_DATE: End date for data download (YYYY-MM-DD)
+        TRAIN_END: End date for training split (YYYY-MM-DD)
+        VAL_END: End date for validation split (YYYY-MM-DD)
+        EMBEDDING_DIM: Time-delay embedding dimension (d in Y_t)
+        CACHE_DIR: Directory to cache downloaded data (None = no caching)
+        SEQUENCE_LENGTH: Sequence length for training (1 = pairwise)
+    """
+    TICKERS: List[str] = field(default_factory=lambda: DEFAULT_FINANCE_TICKERS.copy())
+    START_DATE: str = "2012-01-01"
+    END_DATE: str = "2024-12-31"
+    TRAIN_END: str = "2018-12-31"
+    VAL_END: str = "2020-12-31"
+    EMBEDDING_DIM: int = 5  # Number of lagged days in embedding
+    CACHE_DIR: Optional[str] = None
+    SEQUENCE_LENGTH: int = 1  # 1 = pairwise training
+
+
+@dataclass
 class EnvConfig:
     """Environment configuration."""
-    ENV_NAME: str = "duffing"  # from ["duffing", "parabolic", "pendulum", "lotka_volterra", "lorenz63"]
+    ENV_NAME: str = "duffing"  # from ["duffing", "parabolic", "pendulum", "lotka_volterra", "lorenz63", "finance"]
     PARABOLIC: ParabolicConfig = field(default_factory=ParabolicConfig)
     DUFFING: DuffingConfig = field(default_factory=DuffingConfig)
     PENDULUM: PendulumConfig = field(default_factory=PendulumConfig)
     LOTKA_VOLTERRA: LotkaVolterraConfig = field(default_factory=LotkaVolterraConfig)
     LORENZ63: Lorenz63Config = field(default_factory=Lorenz63Config)
     LYAPUNOV: LyapunovConfig = field(default_factory=LyapunovConfig)
+    FINANCE: FinanceConfig = field(default_factory=FinanceConfig)
 
 
 @dataclass
@@ -271,6 +311,7 @@ class Config:
             LOTKA_VOLTERRA=LotkaVolterraConfig(**env_dict.get("LOTKA_VOLTERRA", {})),
             LORENZ63=Lorenz63Config(**env_dict.get("LORENZ63", {})),
             LYAPUNOV=LyapunovConfig(**env_dict.get("LYAPUNOV", {})),
+            FINANCE=FinanceConfig(**env_dict.get("FINANCE", {})),
         )
         
         model_dict = config_dict.get("MODEL", {})
@@ -389,12 +430,65 @@ def get_train_lista_nonlinear_config() -> Config:
     return cfg
 
 
+def get_train_finance_sparse_config() -> Config:
+    """Training configuration for finance portfolio rebalancing.
+    
+    This config is designed for learning Koopman representations of 
+    financial market dynamics using log-returns with time-delay embedding.
+    
+    Key design choices:
+    - Pairwise training (USE_SEQUENCE_LOSS=False) for initial experiments
+    - Moderate sparsity regularization
+    - ReLU encoder with bias for expressiveness
+    - Linear decoder for simplicity
+    """
+    cfg = Config()
+    cfg.ENV.ENV_NAME = "finance"
+    
+    # Model: GenericKM with sparsity
+    cfg.MODEL.MODEL_NAME = "GenericKM"
+    cfg.MODEL.TARGET_SIZE = 128  # Latent dimension (can increase later)
+    cfg.MODEL.NORM_FN = "id"
+    
+    # Encoder: MLP with ReLU
+    cfg.MODEL.ENCODER.LAYERS = [128, 128]
+    cfg.MODEL.ENCODER.LAST_RELU = False  # Allow negative latents to avoid collapse
+    cfg.MODEL.ENCODER.USE_BIAS = True
+    cfg.MODEL.ENCODER.ACTIVATION = "relu"
+    
+    # Decoder: Linear
+    cfg.MODEL.DECODER.LAYERS = []
+    cfg.MODEL.DECODER.USE_BIAS = False
+    
+    # Loss weights (tuned for finance)
+    cfg.MODEL.RES_COEFF = 0.1      # Lower alignment to prevent zero-collapse
+    cfg.MODEL.RECONST_COEFF = 10.0  # High recon to force learning features
+    cfg.MODEL.PRED_COEFF = 1.0     # Prediction loss (important for forecasting)
+    cfg.MODEL.SPARSITY_COEFF = 0.0  # Disable sparsity initially to prevent collapse
+    
+    # Training
+    cfg.TRAIN.LR = 1e-4
+    cfg.TRAIN.K_MATRIX_LR = 1e-5  # Slower learning for Koopman matrix
+    cfg.TRAIN.NUM_STEPS = 10_000
+    cfg.TRAIN.BATCH_SIZE = 64  # Smaller batches for finance (less data)
+    cfg.TRAIN.DATA_SIZE = 64 * 20
+    cfg.TRAIN.USE_SEQUENCE_LOSS = False  # Pairwise for now
+    cfg.TRAIN.SEQUENCE_LENGTH = 10
+    
+    # Finance data config 
+    # Enable data caching to avoid re-downloading
+    cfg.ENV.FINANCE.CACHE_DIR = ".cache/finance_data"
+    
+    return cfg
+
+
 _TRAIN_CONFIG_REGISTRY = {
     "generic": get_train_generic_km_config,
     "generic_sparse": get_train_generic_sparse_config,
     "generic_prediction": get_train_generic_prediction_config,
     "lista": get_train_lista_config,
     "lista_nonlinear": get_train_lista_nonlinear_config,
+    "finance_sparse": get_train_finance_sparse_config,
 }
 
 
@@ -409,6 +503,7 @@ def get_config(name: str = "default") -> Config:
             - "generic_prediction": Prediction-focused
             - "lista": LISTA-based KoopmanMachine
             - "lista_nonlinear": LISTA with MLP encoder
+            - "finance_sparse": Finance portfolio rebalancing
     
     Returns:
         Config for the specified configuration.
