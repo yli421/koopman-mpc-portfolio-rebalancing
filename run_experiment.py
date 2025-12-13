@@ -14,6 +14,8 @@ import torch
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
+import argparse
+from datetime import datetime
 
 from config import Config
 from model import make_model
@@ -30,8 +32,38 @@ from baselines import MarkowitzStrategy, DMDStrategy
 
 def main():
     # 1. Load Model
-    # Use the path from the last successful run
-    run_dir = Path("runs/kae/20251213-174927")
+    parser = argparse.ArgumentParser(description='Run experiment evaluation')
+    parser.add_argument('--path', type=str, help='Path to experiment run directory', default=None)
+    args = parser.parse_args()
+
+    if args.path:
+        run_dir = Path(args.path)
+    else:
+        # Find latest run automatically
+        search_dirs = [Path("runs/kae"), Path("runs/kae_finance")]
+        latest_run = None
+        latest_time = None
+        
+        for search_dir in search_dirs:
+            if not search_dir.exists():
+                continue
+            for d in search_dir.iterdir():
+                if d.is_dir() and (d / "checkpoint.pt").exists():
+                    try:
+                        # Parse timestamp from directory name
+                        run_time = datetime.strptime(d.name, "%Y%m%d-%H%M%S")
+                        if latest_time is None or run_time > latest_time:
+                            latest_time = run_time
+                            latest_run = d
+                    except ValueError:
+                        continue
+        
+        if latest_run is None:
+            raise ValueError("Could not find any valid run directories in runs/kae or runs/kae_finance")
+            
+        run_dir = latest_run
+        print(f"Automatically selected latest run: {run_dir}")
+
     checkpoint_path = run_dir / "checkpoint.pt"
     
     print(f"Loading model from {checkpoint_path}...")
