@@ -1,16 +1,159 @@
-# Sparse Koopman Autoencoder (SKAE)
+# Koopman-MPC Portfolio Rebalancing
 
-PyTorch-based research codebase for learning Koopman operator representations of nonlinear dynamical systems using autoencoders with sparsity constraints.
+PyTorch-based research codebase for **Koopman Model Predictive Control (MPC)** applied to dynamic portfolio rebalancing. The project learns Koopman operator representations of financial market dynamics and uses them for multi-step return forecasting and convex MPC-based portfolio optimization.
 
 ## Overview
 
-This repository implements several variants of Koopman autoencoders:
+This repository implements:
+
+- **Koopman Autoencoders** for learning linear latent dynamics from nonlinear financial time series
+- **Model Predictive Control (MPC)** using predicted returns for optimal portfolio rebalancing
+- **Backtesting Framework** comparing Koopman-MPC against baselines (Buy & Hold, Markowitz)
+
+### Koopman Autoencoder Variants
 
 - **GenericKM**: Standard Koopman autoencoder with MLP encoder
 - **SparseKM**: Koopman autoencoder with L1 sparsity regularization
 - **LISTAKM**: Learned Iterative Soft-Thresholding Algorithm (LISTA) based sparse encoder
 
-## Quick Start
+---
+
+## Portfolio Rebalancing with Koopman-MPC
+
+### The Idea
+
+Financial markets are complex nonlinear dynamical systems. The Koopman operator provides a way to represent these nonlinear dynamics as **linear dynamics in a higher-dimensional latent space**:
+
+```
+z_{t+1} = K z_t    (linear in latent space)
+x_t = ψ(z_t)       (nonlinear decoder back to returns)
+```
+
+This allows us to:
+1. **Forecast returns** by unrolling the linear Koopman dynamics
+2. **Solve convex MPC** since the dynamics are linear in the lifted space
+3. **Optimize portfolios** with clear constraints (budget, no shorting, turnover limits)
+
+### Quick Start: Train and Backtest
+
+```bash
+# 1. Train the Koopman model on finance data
+uv run python train.py --config finance_sparse --env finance --num_steps 10000
+
+# 2. Run backtesting with the trained model (after training completes)
+# The backtest runs automatically at the end of training, or manually:
+uv run python -c "
+from config import get_config
+from train import train
+from backtest import run_backtest, BuyAndHoldStrategy, KoopmanMPCStrategy, BacktestConfig, calculate_metrics
+from mpc import MPCConfig
+from data_finance import create_finance_env
+import torch
+
+# Load trained model
+cfg = get_config('finance_sparse')
+checkpoint = torch.load('runs/kae_finance/<timestamp>/checkpoint.pt')
+from model import make_model
+env = create_finance_env(from_config=cfg)
+model = make_model(cfg, env.observation_size)
+model.load_state_dict(checkpoint['model_state_dict'])
+model.eval()
+
+# Run Koopman-MPC backtest
+mpc_cfg = MPCConfig(horizon=5, cost_coeff=0.001)
+bt_cfg = BacktestConfig(initial_capital=10000, horizon=5)
+strategy = KoopmanMPCStrategy(model, mpc_cfg)
+results = run_backtest(strategy, env, bt_cfg)
+print(calculate_metrics(results))
+"
+```
+
+### Training the Koopman Model
+
+The `finance_sparse` config is pre-configured for financial data:
+
+```bash
+# Basic training
+uv run python train.py --config finance_sparse --env finance --num_steps 10000
+
+# With custom parameters
+uv run python train.py \
+  --config finance_sparse \
+  --env finance \
+  --num_steps 20000 \
+  --batch_size 64 \
+  --target_size 128 \
+  --sparsity_coeff 0.01 \
+  --device cuda
+```
+
+**Key training features:**
+- **Discrete Koopman dynamics**: Uses `z_{t+1} = K z_t` (not ODE integration) since financial data is discrete daily
+- **Sequence training**: Trains on sequences of length 10 for multi-step stability
+- **Time-delay embedding**: Each observation `Y_t = [y_t, y_{t-1}, ..., y_{t-d+1}]` captures temporal context
+
+### Understanding the Data Pipeline
+
+```
+Prices p_t → Log-returns y_t = log(p_t/p_{t-1}) → Standardize → Time-delay embed Y_t → Koopman AE
+```
+
+The `FinanceEnv` handles:
+- Downloading stock data via Yahoo Finance API
+- Computing log-returns and standardizing (train stats only)
+- Creating time-delay embeddings
+- Chronological train/val/test splits (no data leakage)
+
+### MPC Formulation
+
+At each rebalancing step, the MPC solves:
+
+```
+maximize  Σ_{k=1}^H [ log(w_k^T exp(ŷ_k)) - λ ||w_k - w_{k-1}||_1 ]
+subject to:
+    Σ w_k = 1           (budget constraint)
+    w_k ≥ 0             (no shorting)
+    ||w_k - w_{k-1}||_1 ≤ τ  (turnover limit)
+```
+
+Where `ŷ_k` are the Koopman-predicted log-returns.
+
+### Backtesting Strategies
+
+```python
+from backtest import run_backtest, BuyAndHoldStrategy, KoopmanMPCStrategy
+from mpc import MPCConfig
+
+# Buy & Hold (equal weight)
+bh_strategy = BuyAndHoldStrategy()
+bh_results = run_backtest(bh_strategy, env, backtest_config)
+
+# Koopman-MPC
+mpc_config = MPCConfig(
+    horizon=5,           # 5-day prediction horizon
+    cost_coeff=0.001,    # 10bps transaction cost
+    max_turnover=0.2,    # Max 20% turnover per step
+    allow_short=False,
+)
+koopman_strategy = KoopmanMPCStrategy(model, mpc_config)
+koopman_results = run_backtest(koopman_strategy, env, backtest_config)
+
+# Compare
+print("Koopman-MPC:", calculate_metrics(koopman_results))
+print("Buy & Hold:", calculate_metrics(bh_results))
+```
+
+### Evaluation Metrics
+
+The backtester computes:
+- **Sharpe Ratio**: Risk-adjusted returns (annualized)
+- **Max Drawdown**: Largest peak-to-trough decline
+- **Average Turnover**: Mean daily portfolio turnover
+- **Total Return**: Overall portfolio growth
+
+---
+
+## Quick Start (Dynamical Systems)
 
 ### Installation
 
@@ -90,15 +233,20 @@ python evaluate_checkpoints.py --run_dir runs/kae/<timestamp> --system lorenz63 
 ## Repository Structure
 
 ```
-skae/
+koopman-mpc-portfolio-rebalancing/
 ├── config.py              # Configuration system with presets
 ├── data.py                # Dynamical systems environments
+├── data_finance.py        # Finance data pipeline (Yahoo Finance, embeddings)
 ├── model.py               # Koopman autoencoder models
 ├── train.py               # Training script (CLI + API)
+├── mpc.py                 # Model Predictive Control solvers
+├── backtest.py            # Backtesting engine and strategies
+├── baselines.py           # Baseline strategies (Markowitz, DMD)
 ├── evaluation.py          # Model evaluation
-├── plot_metrics.py        # Visualization utilities
+├── plot_training_metrics.py # Visualization utilities
 ├── tests/                 # Unit tests
 ├── notebooks/             # Research notebooks
+└── runs/                  # Training outputs and checkpoints
 ```
 
 ## Available Configurations
@@ -146,16 +294,31 @@ python train.py --config lista_nonlinear --env lorenz63
 - **Model**: LISTAKM with nonlinear pre-activation
 - **Encoder**: [64, 64, 64] MLP → LISTA
 
+### `finance_sparse` - Finance Portfolio Rebalancing
+```bash
+python train.py --config finance_sparse --env finance --num_steps 10000
+```
+- **Model**: GenericKM with sparse encoding
+- **Target size**: 128 (latent dimension)
+- **Encoder**: [256, 128] MLP with ReLU + bias
+- **Decoder**: [128] MLP (linear output)
+- **Training**: Sequence-based (length 10) with discrete Koopman dynamics
+- **Loss weights**: Residual (1.0), Reconstruction (0.5), Prediction (1.0), Sparsity (0.01)
+- **Data**: 20 liquid US stocks, 2012-2024, with time-delay embedding (d=20)
+
 ## Environments
 
 | Environment | Dimension | Description |
 |------------|-----------|-------------|
+| `finance` | 400D* | Financial log-returns with time-delay embedding |
 | `duffing` | 2D | Duffing oscillator with two stable centers |
 | `pendulum` | 2D | Simple pendulum |
 | `lotka_volterra` | 2D | Predator-prey dynamics |
 | `lorenz63` | 3D | Chaotic Lorenz attractor |
 | `parabolic` | 2D | Parabolic attractor (analytical Koopman) |
 | `lyapunov` | 2D | Multi-attractor system with Lyapunov dynamics |
+
+*Finance dimension = n_assets × embedding_dim (default: 20 assets × 20 lags = 400)
 
 ## Training Output
 
