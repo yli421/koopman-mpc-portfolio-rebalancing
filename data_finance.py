@@ -745,12 +745,14 @@ class FinanceEnv:
 def create_finance_env(
     config: Optional[FinanceDataConfig] = None,
     from_config: Optional["Config"] = None,
+    sequence_length: Optional[int] = None,
 ) -> FinanceEnv:
     """Create a FinanceEnv from configuration.
     
     Args:
         config: FinanceDataConfig (if provided directly)
-        from_config: Full Config object (extracts FINANCE settings)
+        from_config: Full Config object (extracts FINANCE and TRAIN settings)
+        sequence_length: Override sequence length (default: from config or 1)
         
     Returns:
         FinanceEnv instance ready for training
@@ -767,12 +769,19 @@ def create_finance_env(
             embedding_dim=finance_cfg.EMBEDDING_DIM,
             cache_dir=finance_cfg.CACHE_DIR,
         )
+        # Use TRAIN.SEQUENCE_LENGTH if not overridden (for sequence training)
+        if sequence_length is None:
+            sequence_length = from_config.TRAIN.SEQUENCE_LENGTH if from_config.TRAIN.USE_SEQUENCE_LOSS else 1
     
     if config is None:
         config = FinanceDataConfig()
     
-    # Load data
-    train_ds, val_ds, test_ds, stats, metadata = load_finance_data(config)
+    # Default to pairwise (sequence_length=1) if not specified
+    if sequence_length is None:
+        sequence_length = 1
+    
+    # Load data with appropriate sequence length
+    train_ds, val_ds, test_ds, stats, metadata = load_finance_data(config, sequence_length=sequence_length)
     
     return FinanceEnv(
         train_dataset=train_ds,

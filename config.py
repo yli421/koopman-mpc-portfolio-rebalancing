@@ -204,9 +204,9 @@ class FinanceConfig:
     END_DATE: str = "2024-12-31"
     TRAIN_END: str = "2018-12-31"
     VAL_END: str = "2020-12-31"
-    EMBEDDING_DIM: int = 5  # Number of lagged days in embedding
+    EMBEDDING_DIM: int = 20  # Number of lagged days in embedding
     CACHE_DIR: Optional[str] = None
-    SEQUENCE_LENGTH: int = 1  # 1 = pairwise training
+    SEQUENCE_LENGTH: int = 10  # >1 = sequence training (better for forecasting)
 
 
 @dataclass
@@ -461,8 +461,6 @@ def get_train_finance_sparse_config() -> Config:
     cfg.MODEL.DECODER.USE_BIAS = False
     
     # Loss weights (tuned for finance)
-    RES_COEFF: float = 1.0  # alignment loss weight
-    RECONST_COEFF: float = 0.02
     cfg.MODEL.RES_COEFF = 1.0      # Lower alignment to prevent zero-collapse
     cfg.MODEL.RECONST_COEFF = 0.02  # High recon to force learning features
     cfg.MODEL.PRED_COEFF = 1.0     # Prediction loss (important for forecasting)
@@ -474,8 +472,8 @@ def get_train_finance_sparse_config() -> Config:
     cfg.TRAIN.NUM_STEPS = 10_000
     cfg.TRAIN.BATCH_SIZE = 64  # Smaller batches for finance (less data)
     cfg.TRAIN.DATA_SIZE = 64 * 20
-    cfg.TRAIN.USE_SEQUENCE_LOSS = False  # Pairwise for now
-    cfg.TRAIN.SEQUENCE_LENGTH = 10
+    cfg.TRAIN.USE_SEQUENCE_LOSS = True  # Use sequence loss for multi-step stability
+    cfg.TRAIN.SEQUENCE_LENGTH = 10      # Matches data config
     
     # Finance data config 
     # Enable data caching to avoid re-downloading
