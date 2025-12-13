@@ -200,7 +200,12 @@ def run_backtest(
             
             # Update Weights (drift)
             # w_i(t+1) = w_i(t) * (1+r_i) / (1+r_p)
-            current_weights = current_weights * (1.0 + realized_ret) / (1.0 + port_ret)
+            # Add epsilon to avoid division by zero if port_ret is -1.0
+            denom = 1.0 + port_ret
+            if abs(denom) < 1e-8:
+                denom = 1e-8
+            
+            current_weights = current_weights * (1.0 + realized_ret) / denom
         
         # Record stats
         history.append({
