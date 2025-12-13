@@ -524,23 +524,85 @@ class KoopmanMachine(ABC, nn.Module):
         
         return total_loss, metrics
     
+    def rollout_latent_discrete(
+        self,
+        z0: torch.Tensor,
+        num_steps: int,
+    ) -> torch.Tensor:
+        """Rollout discrete Koopman dynamics from initial latent state.
+        
+        Implements discrete dynamics: z_{t+k} = K^k z_0
+        
+        Args:
+            z0: Initial latent state [batch_size, target_size]
+            num_steps: Number of steps to roll forward (returns num_steps+1 states)
+            
+        Returns:
+            Latent trajectory [batch_size, num_steps+1, target_size]
+            Includes z0 at index 0, z1 at index 1, etc.
+        """
+        batch_size = z0.shape[0]
+        kmat = self.kmatrix()
+        
+        # Collect trajectory
+        z_list = [z0]
+        z = z0
+        for _ in range(num_steps):
+            z = z @ kmat  # z_{t+1} = z_t @ K (discrete Koopman dynamics)
+            z_list.append(z)
+        
+        # Stack: [num_steps+1, batch_size, target_size] -> [batch_size, num_steps+1, target_size]
+        z_traj = torch.stack(z_list, dim=1)
+        return z_traj
+    
+    def rollout_sequence(
+        self,
+        x0: torch.Tensor,
+        num_steps: int,
+    ) -> torch.Tensor:
+        """Rollout discrete Koopman dynamics in observation space.
+        
+        Args:
+            x0: Initial observations [batch_size, observation_size]
+            num_steps: Number of steps to roll forward
+            
+        Returns:
+            Predicted trajectory [batch_size, num_steps+1, observation_size]
+            Includes x0 prediction at index 0
+        """
+        # Encode initial state
+        z0 = self.encode(x0)  # [batch_size, target_size]
+        
+        # Rollout in latent space
+        z_traj = self.rollout_latent_discrete(z0, num_steps)  # [batch_size, num_steps+1, target_size]
+        
+        # Decode all states
+        batch_size, seq_len, target_size = z_traj.shape
+        z_flat = z_traj.reshape(batch_size * seq_len, target_size)
+        x_flat = self.decode(z_flat)
+        x_traj = x_flat.reshape(batch_size, seq_len, self.observation_size)
+        
+        return x_traj
+
     def loss_sequence(
         self,
         x_seq: torch.Tensor,
-        dt: float,
+        dt: float = 1.0,  # Unused for discrete dynamics, kept for API compatibility
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-        """Compute sequence-based loss using ODE integration.
+        """Compute sequence-based loss using discrete Koopman dynamics.
         
-        This implements the continuous-time training scheme:
+        This implements the discrete-time training scheme for finance:
         1. Encode all states in sequence: z_i = φ(x_i)
-        2. Integrate dz/dt = Kz from z_0 to get predicted latents ẑ_i
+        2. Unroll discrete dynamics z_{t+k} = K^k z_t from z_0 to get predicted latents ẑ_i
         3. Decode both: x̃_i = ψ(z_i), x̂_i = ψ(ẑ_i)
         4. Compute alignment, reconstruction, and prediction losses
+        
+        This matches PDF Eq. 31: z_{t+1} = K z_t (discrete Koopman dynamics)
         
         Args:
             x_seq: Sequence of states with shape [batch_size, seq_len, observation_size]
                    Includes x_t, x_{t+1}, ..., x_{t+T}
-            dt: Time step between consecutive observations
+            dt: Time step (unused for discrete dynamics, kept for API compatibility)
             
         Returns:
             Tuple of (total_loss, metrics_dict)
@@ -553,24 +615,18 @@ class KoopmanMachine(ABC, nn.Module):
         z_flat = self.encode(x_flat)  # [batch_size * seq_len, target_size]
         z_seq = z_flat.reshape(batch_size, seq_len, self.target_size)
         
-        # 2. Integrate Koopman dynamics from initial state
-        x0 = x_seq[:, 0, :]  # [batch_size, obs_size]
+        # 2. Unroll discrete Koopman dynamics from initial state
+        # z_{t+k} = K^k z_0 (discrete dynamics, PDF Eq. 31)
         z0 = z_seq[:, 0, :]  # [batch_size, target_size]
         
-        # Create time span for integration
-        t_span = torch.arange(seq_len, dtype=torch.float32, device=x_seq.device) * dt
-        
-        # Integrate: z_hat has shape [seq_len, batch_size, target_size]
-        z_hat_traj = self.integrate_latent_ode(z0, t_span)
-        
-        # Transpose to [batch_size, seq_len, target_size]
-        z_hat_seq = z_hat_traj.transpose(0, 1)
+        # Rollout: z_hat_seq has shape [batch_size, seq_len, target_size]
+        z_hat_seq = self.rollout_latent_discrete(z0, seq_len - 1)
         
         # 3. Decode both encoded and advanced latents
         # Reconstruction from encoded latents
         x_tilde = self.decode(z_flat).reshape(batch_size, seq_len, obs_size)
         
-        # Prediction from ODE-advanced latents
+        # Prediction from discrete-advanced latents
         z_hat_flat = z_hat_seq.reshape(batch_size * seq_len, self.target_size)
         x_hat_flat = self.decode(z_hat_flat)
         x_hat_seq = x_hat_flat.reshape(batch_size, seq_len, obs_size)
@@ -578,27 +634,27 @@ class KoopmanMachine(ABC, nn.Module):
         # 4. Compute losses
         
         # Alignment loss: sum over sequence (excluding initial state)
-        # |ẑ_{t+i} - z_{t+i}|^2 for i = 1..T
+        # |ẑ_{t+i} - z_{t+i}|^2 for i = 1..T (PDF Eq. 34)
         alignment_loss = torch.norm(
             z_hat_seq[:, 1:, :] - z_seq[:, 1:, :], 
             dim=-1
         ).pow(2).sum(dim=1).mean()
         
         # Reconstruction loss: sum over entire sequence including initial
-        # |x_{t+i} - x̃_{t+i}|^2 for i = 0..T
+        # |x_{t+i} - x̃_{t+i}|^2 for i = 0..T (PDF Eq. 32)
         reconst_loss = torch.norm(
             x_seq - x_tilde,
             dim=-1
         ).pow(2).sum(dim=1).mean()
         
         # Prediction loss: sum over sequence (excluding initial state)
-        # |x_{t+i} - x̂_{t+i}|^2 for i = 1..T
+        # |x_{t+i} - x̂_{t+i}|^2 for i = 1..T (PDF Eq. 33)
         prediction_loss = torch.norm(
             x_seq[:, 1:, :] - x_hat_seq[:, 1:, :],
             dim=-1
         ).pow(2).sum(dim=1).mean()
         
-        # Sparsity loss: L1 on latents averaged over sequence
+        # Sparsity loss: L1 on latents averaged over sequence (PDF Eq. 35)
         sparsity_loss = torch.norm(z_seq, p=1, dim=-1).mean()
         
         # Metrics for monitoring
@@ -611,12 +667,12 @@ class KoopmanMachine(ABC, nn.Module):
                 eigvals = torch.linalg.eigvals(kmat_cpu)
             else:
                 eigvals = torch.linalg.eigvals(kmat)
-            max_eigenvalue = torch.max(eigvals.real)
+            max_eigenvalue = torch.max(torch.abs(eigvals))
             
             num_nonzero_codes = (z_seq != 0).float().sum(dim=-1).mean()
             sparsity_ratio = 1.0 - num_nonzero_codes / self.target_size
         
-        # Total weighted loss
+        # Total weighted loss (PDF Eq. 36)
         total_loss = (
             self.cfg.MODEL.RES_COEFF * alignment_loss +
             self.cfg.MODEL.RECONST_COEFF * reconst_loss +
@@ -630,7 +686,7 @@ class KoopmanMachine(ABC, nn.Module):
             'reconst_loss': reconst_loss.item(),
             'prediction_loss': prediction_loss.item(),
             'sparsity_loss': sparsity_loss.item(),
-            'A_max_eigenvalue': max_eigenvalue.item(),
+            'K_max_eigenvalue_abs': max_eigenvalue.item(),
             'sparsity_ratio': sparsity_ratio.item(),
         }
         
