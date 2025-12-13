@@ -682,11 +682,11 @@ class KoopmanMachine(ABC, nn.Module):
         
         metrics = {
             'loss': total_loss.item(),
-            'alignment_loss': alignment_loss.item(),
+            'residual_loss': alignment_loss.item(),  # Named 'residual' for consistency with single-step loss
             'reconst_loss': reconst_loss.item(),
             'prediction_loss': prediction_loss.item(),
             'sparsity_loss': sparsity_loss.item(),
-            'K_max_eigenvalue_abs': max_eigenvalue.item(),
+            'A_max_eigenvalue': max_eigenvalue.item(),  # Named 'A' for consistency with single-step loss
             'sparsity_ratio': sparsity_ratio.item(),
         }
         
