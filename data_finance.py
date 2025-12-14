@@ -448,7 +448,10 @@ def load_finance_data(
     if config.cache_dir is not None:
         cache_dir = Path(config.cache_dir)
         # Create unique cache filename based on tickers and dates
-        ticker_hash = hash(tuple(sorted(config.tickers))) % 10000
+        # Use deterministic hash (md5) instead of python's hash() which is randomized per session
+        import hashlib
+        ticker_str = ",".join(sorted(config.tickers))
+        ticker_hash = hashlib.md5(ticker_str.encode()).hexdigest()[:8]
         cache_path = cache_dir / f"prices_{config.start_date}_{config.end_date}_{ticker_hash}.parquet"
     
     # Download and clean data

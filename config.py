@@ -205,7 +205,7 @@ class FinanceConfig:
     TRAIN_END: str = "2018-12-31"
     VAL_END: str = "2020-12-31"
     EMBEDDING_DIM: int = 20  # Number of lagged days in embedding
-    CACHE_DIR: Optional[str] = None
+    CACHE_DIR: Optional[str] = ".cache/finance_data"  # Default cache directory
     SEQUENCE_LENGTH: int = 10  # >1 = sequence training (better for forecasting)
 
 
@@ -451,7 +451,7 @@ def get_train_finance_sparse_config() -> Config:
     cfg.MODEL.TARGET_SIZE = 1024  # Increased to lift dynamics to higher dim
     cfg.MODEL.NORM_FN = "id"
     
-    # Encoder: MLP with ReLU - Widen layers to support lifting
+    # Encoder: MLP with gelu - Widen layers to support lifting
     cfg.MODEL.ENCODER.LAYERS = [1024, 1024]
     cfg.MODEL.ENCODER.LAST_RELU = False  # Changed to False to allow negative latents
     cfg.MODEL.ENCODER.USE_BIAS = True
