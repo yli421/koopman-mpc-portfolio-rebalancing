@@ -445,13 +445,13 @@ def get_train_finance_sparse_config() -> Config:
     cfg = Config()
     cfg.ENV.ENV_NAME = "finance"
     
-    # Model: GenericKM with sparsity
+    # Model: GenericKM with sparsity - High-dimensional lifting strategy
     cfg.MODEL.MODEL_NAME = "GenericKM"
-    cfg.MODEL.TARGET_SIZE = 128  # Latent dimension (can increase later)
+    cfg.MODEL.TARGET_SIZE = 1024  # Increased to lift dynamics to higher dim
     cfg.MODEL.NORM_FN = "id"
     
-    # Encoder: MLP with ReLU
-    cfg.MODEL.ENCODER.LAYERS = [128, 128]
+    # Encoder: MLP with ReLU - Widen layers to support lifting
+    cfg.MODEL.ENCODER.LAYERS = [1024, 1024]
     cfg.MODEL.ENCODER.LAST_RELU = False  # Allow negative latents to avoid collapse
     cfg.MODEL.ENCODER.USE_BIAS = True
     cfg.MODEL.ENCODER.ACTIVATION = "relu"
@@ -461,14 +461,14 @@ def get_train_finance_sparse_config() -> Config:
     cfg.MODEL.DECODER.USE_BIAS = False
     
     # Loss weights (tuned for finance)
-    cfg.MODEL.RES_COEFF = 1.0      # Lower alignment to prevent zero-collapse
-    cfg.MODEL.RECONST_COEFF = 0.02  # High recon to force learning features
-    cfg.MODEL.PRED_COEFF = 1.0     # Prediction loss (important for forecasting)
-    cfg.MODEL.SPARSITY_COEFF = 0.0  # Disable sparsity initially to prevent collapse
+    cfg.MODEL.RES_COEFF = 0.1       # Reduced: Don't obsess over linearity yet
+    cfg.MODEL.RECONST_COEFF = 0.1   # Increased x100: FORCE it to reconstruct the data
+    cfg.MODEL.PRED_COEFF = 0.1      # Increased x100: FORCE it to predict the future
+    cfg.MODEL.SPARSITY_COEFF = 1e-3 # Increased x10: Make it actually sparse
     
     # Training
-    cfg.TRAIN.LR = 1e-4
-    cfg.TRAIN.K_MATRIX_LR = 1e-5  # Slower learning for Koopman matrix
+    cfg.TRAIN.LR = 1e-3
+    cfg.TRAIN.K_MATRIX_LR = 1e-4  # Slower learning for Koopman matrix
     cfg.TRAIN.NUM_STEPS = 10_000
     cfg.TRAIN.BATCH_SIZE = 64  # Smaller batches for finance (less data)
     cfg.TRAIN.DATA_SIZE = 64 * 20
