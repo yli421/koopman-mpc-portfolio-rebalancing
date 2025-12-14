@@ -212,3 +212,4 @@ runs/*
 plots/*
 
 .DS_Store
+*slurm*
