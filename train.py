@@ -1128,16 +1128,22 @@ def main():
                         help='Batch size')
     parser.add_argument('--lr', type=float, default=None,
                         help='Learning rate (overrides config default)')
+    parser.add_argument('--k_matrix_lr', type=float, default=None,
+                        help='K matrix learning rate (overrides config default)')
     parser.add_argument('--seed', type=int, default=0,
                         help='Random seed')
     
     # Model
     parser.add_argument('--target_size', type=int, default=None,
                         help='Latent dimension (overrides config default)')
+    parser.add_argument('--encoder_layers', type=str, default=None,
+                        help='Encoder layers as comma-separated integers (e.g. "1024,1024")')
     parser.add_argument('--sparsity_coeff', type=float, default=None,
                         help='Sparsity loss weight (overrides config default)')
     parser.add_argument('--reconst_coeff', type=float, default=None,
                         help='Reconstruction loss weight (overrides config default)')
+    parser.add_argument('--res_coeff', type=float, default=None,
+                        help='Residual loss weight (overrides config default)')
     parser.add_argument('--pred_coeff', type=float, default=None,
                         help='Prediction loss weight (overrides config default)')
     parser.add_argument('--lista_alpha', type=float, default=None,
@@ -1159,6 +1165,8 @@ def main():
     parser.add_argument('--device', type=str, default='auto',
                         choices=['cpu', 'cuda', 'mps', 'auto'],
                         help='Device to train on (auto: auto-detect best available)')
+    parser.add_argument('--data_path', type=str, default=None,
+                        help='Path to data directory (overrides config cache dir)')
     
     args = parser.parse_args()
     
@@ -1181,12 +1189,22 @@ def main():
     # Override config with command-line args
     if args.lr is not None:
         cfg.TRAIN.LR = args.lr
+        # Default K matrix LR is 0.1 * LR if not specified
+        if args.k_matrix_lr is None:
+             cfg.TRAIN.K_MATRIX_LR = args.lr * 0.1
+
+    if args.k_matrix_lr is not None:
+        cfg.TRAIN.K_MATRIX_LR = args.k_matrix_lr
     if args.target_size is not None:
         cfg.MODEL.TARGET_SIZE = args.target_size
+    if args.encoder_layers is not None:
+        cfg.MODEL.ENCODER.LAYERS = [int(x) for x in args.encoder_layers.split(',')]
     if args.sparsity_coeff is not None:
         cfg.MODEL.SPARSITY_COEFF = args.sparsity_coeff
     if args.reconst_coeff is not None:
         cfg.MODEL.RECONST_COEFF = args.reconst_coeff
+    if args.res_coeff is not None:
+        cfg.MODEL.RES_COEFF = args.res_coeff
     if args.pred_coeff is not None:
         cfg.MODEL.PRED_COEFF = args.pred_coeff
     if args.lista_alpha is not None:
@@ -1198,6 +1216,8 @@ def main():
         print("Using pairwise (single-step) training mode")
     if args.sequence_length is not None:
         cfg.TRAIN.SEQUENCE_LENGTH = args.sequence_length
+    if args.data_path is not None:
+        cfg.ENV.FINANCE.CACHE_DIR = args.data_path
     
     # Auto-detect device
     device = get_device(args.device)
