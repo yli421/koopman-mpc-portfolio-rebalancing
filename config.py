@@ -452,9 +452,9 @@ def get_train_finance_sparse_config() -> Config:
     
     # Encoder: MLP with ReLU - Widen layers to support lifting
     cfg.MODEL.ENCODER.LAYERS = [1024, 1024]
-    cfg.MODEL.ENCODER.LAST_RELU = False  # Allow negative latents to avoid collapse
+    cfg.MODEL.ENCODER.LAST_RELU = False  # Changed to False to allow negative latents
     cfg.MODEL.ENCODER.USE_BIAS = True
-    cfg.MODEL.ENCODER.ACTIVATION = "relu"
+    cfg.MODEL.ENCODER.ACTIVATION = "gelu"  # GELU is smoother than ReLU and allows negative values
     
     # Decoder: Linear
     cfg.MODEL.DECODER.LAYERS = []
@@ -464,7 +464,7 @@ def get_train_finance_sparse_config() -> Config:
     cfg.MODEL.RES_COEFF = 0.1       # Reduced: Don't obsess over linearity yet
     cfg.MODEL.RECONST_COEFF = 0.1   # Increased x100: FORCE it to reconstruct the data
     cfg.MODEL.PRED_COEFF = 0.1      # Increased x100: FORCE it to predict the future
-    cfg.MODEL.SPARSITY_COEFF = 1e-3 # Increased x10: Make it actually sparse
+    cfg.MODEL.SPARSITY_COEFF = 1e-2 # Increased x10: Make it actually sparse
     
     # Training
     cfg.TRAIN.LR = 1e-3

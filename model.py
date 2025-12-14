@@ -28,14 +28,17 @@ except ImportError:
 
 
 def shrink(x: torch.Tensor, threshold: float) -> torch.Tensor:
-    """Soft thresholding operator (shrinkage). Used in LISTA.
+    """Soft thresholding operator (shrinkage).
+    
+    Equivalent to sign(x) * max(|x| - threshold, 0).
+    Promotes true sparsity (exact zeros) while allowing negative values.
     
     Args:
         x: Input tensor
-        threshold: Threshold value for soft thresholding
+        threshold: Threshold value (lambda)
         
     Returns:
-        Shrunk tensor
+        Shrunk tensor with exact zeros where |x| < threshold
     """
     return torch.sign(x) * torch.maximum(torch.abs(x) - threshold, torch.zeros_like(x))
 
@@ -101,7 +104,12 @@ class MLPCoder(nn.Module):
         
         layers.append(nn.Linear(prev_size, target_size, bias=use_bias))
         if last_relu:
-            layers.append(nn.ReLU())
+            # If last_relu is True, use the configured activation (e.g. gelu) instead of forced ReLU
+            # This allows the config to control the final activation
+            if activation == 'relu':
+                layers.append(nn.ReLU())
+            else:
+                layers.append(get_activation(activation))
         
         self.network = nn.Sequential(*layers)
     
@@ -736,6 +744,7 @@ class GenericKM(KoopmanMachine):
         self.kmat = nn.Parameter(torch.eye(cfg.MODEL.TARGET_SIZE))
 
         self.norm_fn_name = cfg.MODEL.NORM_FN
+        self.soft_threshold = cfg.MODEL.SPARSITY_COEFF  # Use sparsity coeff as threshold
     
     def _norm_fn(self, x: torch.Tensor) -> torch.Tensor:
         """Apply normalization to latent codes.
@@ -756,6 +765,8 @@ class GenericKM(KoopmanMachine):
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """Encode observations to latent space.
         
+        Applies MLP encoding followed by optional soft-thresholding for exact sparsity.
+        
         Args:
             x: Observations of shape [..., observation_size]
             
@@ -763,6 +774,11 @@ class GenericKM(KoopmanMachine):
             Latent codes of shape [..., target_size]
         """
         y = self.encoder(x)
+        
+        # Apply soft-thresholding if not using last_relu to enforce sparsity
+        if not self.cfg.MODEL.ENCODER.LAST_RELU and self.soft_threshold > 0:
+            y = shrink(y, self.soft_threshold * 0.1)  # Scale threshold appropriately
+            
         return self._norm_fn(y)
     
     def decode(self, y: torch.Tensor) -> torch.Tensor:
