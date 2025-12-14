@@ -276,6 +276,7 @@ class TrainConfig:
     LR: float = 1e-4  # main learning rate (encoder/decoder)
     WEIGHT_DECAY: float = 1e-4  # weight decay for AdamW optimizer
     K_MATRIX_LR: float = 1e-5  # learning rate for Koopman matrix parameters
+    NUM_WORKERS: int = 1  # number of dataloader workers
     
     # Sequence training parameters
     USE_SEQUENCE_LOSS: bool = False  # default to single-step loss for parity with JAX
@@ -474,6 +475,7 @@ def get_train_finance_sparse_config() -> Config:
     cfg.TRAIN.DATA_SIZE = 64 * 20
     cfg.TRAIN.USE_SEQUENCE_LOSS = True  # Use sequence loss for multi-step stability
     cfg.TRAIN.SEQUENCE_LENGTH = 10      # Matches data config
+    cfg.TRAIN.NUM_WORKERS = 1
     
     # Finance data config 
     # Enable data caching to avoid re-downloading

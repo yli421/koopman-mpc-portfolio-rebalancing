@@ -667,6 +667,8 @@ class FinanceEnv:
             batch_size=batch_size,
             shuffle=shuffle,
             drop_last=True,
+            num_workers=1,
+            pin_memory=True,
         )
     
     def get_test_sequences(
