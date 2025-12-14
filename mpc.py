@@ -23,6 +23,7 @@ class MPCConfig:
     max_turnover: float = 0.2  # Maximum turnover per step
     allow_short: bool = False
     solver: str = "ECOS"  # ECOS or SCS are good for these problems
+    risk_free_rate: float = 0.0  # Daily risk-free rate (e.g., 0.0 for 0%, 1e-4 for ~2.5% annual)
 
 def solve_mpc_log_utility(
     current_weights: np.ndarray,
@@ -30,7 +31,7 @@ def solve_mpc_log_utility(
     config: MPCConfig,
 ) -> Tuple[np.ndarray, Dict]:
     """
-    Solve MPC using Log-Utility Maximization (Kelly Criterion).
+    Solve MPC using Log-Utility Maximization (Kelly Criterion) with Cash Asset.
     
     maximize sum_{t=1}^H [ log(w_t^T exp(y_t)) - cost * ||w_t - w_{t-1}||_1 ]
     subject to:
@@ -38,31 +39,51 @@ def solve_mpc_log_utility(
         w_t >= 0 (if no short)
     
     Args:
-        current_weights: Current portfolio weights [n_assets]
-        predicted_log_returns: Predicted log-returns [horizon, n_assets]
+        current_weights: Current portfolio weights [n_assets + 1] (last is cash)
+        predicted_log_returns: Predicted log-returns of risky assets [horizon, n_assets]
         config: MPC configuration
         
     Returns:
-        optimal_weights: [horizon, n_assets]
+        optimal_weights: [horizon, n_assets + 1]
         info: Dictionary with solve status and value
     """
     H, N = predicted_log_returns.shape
+    # N is number of risky assets. Total assets = N + 1 (last is cash)
     
+    # Ensure current_weights matches N+1
+    if len(current_weights) != N + 1:
+        # If passed N weights, append 0 for cash (backward compatibility or correction)
+        if len(current_weights) == N:
+            current_weights = np.append(current_weights, 0.0)
+        else:
+            raise ValueError(f"Expected {N+1} weights (incl. cash), got {len(current_weights)}")
+
     # Convert log-returns to gross returns: R = exp(y)
     # This approximates the gross return factor for the asset.
     # Note: If y is small, exp(y) ~ 1 + y.
     # For log-utility, we maximize log(w^T R).
-    predicted_returns = np.exp(predicted_log_returns)
+    risky_returns = np.exp(predicted_log_returns)
     
-    # Variables: weights over horizon
+    # Add cash return column (constant risk-free rate)
+    # Gross return for cash is exp(r_f) approx 1 + r_f
+    cash_return = np.exp(config.risk_free_rate)
+    cash_col = np.full((H, 1), cash_return)
+    predicted_returns = np.hstack([risky_returns, cash_col]) # [H, N+1]
+    
+    # Variables: weights over horizon (including cash)
     # w[t] corresponds to weights held during period t (to capture return r_t)
-    w = cp.Variable((H, N))
+    w = cp.Variable((H, N + 1))
     
     objective_terms = []
     constraints = []
     
     # Initial turnover cost: change from current_weights to w[0]
     # We pay costs to rebalance TO w[0] at the start of period 1
+    # Cost is usually paid on risky asset turnover.
+    # Let's assume standard L1 norm on full vector for simplicity as per common formulations,
+    # or restrict to risky assets if desired. 
+    # Since selling stock -> cash implies cost, and buying stock <- cash implies cost,
+    # L1 norm on full vector counts the trade volume (times 2).
     delta_0 = cp.norm(w[0] - current_weights, 1)
     cost_0 = config.cost_coeff * delta_0
     
@@ -123,23 +144,30 @@ def solve_mpc_mean_variance(
     config: MPCConfig,
 ) -> Tuple[np.ndarray, Dict]:
     """
-    Solve MPC using Mean-Variance Optimization.
+    Solve MPC using Mean-Variance Optimization with Cash Asset.
     
     maximize sum_{t=1}^H [ w_t^T mu_t - gamma * w_t^T Sigma w_t - cost * ||w_t - w_{t-1}||_1 ]
     
     Args:
-        current_weights: Current portfolio weights [n_assets]
+        current_weights: Current portfolio weights [n_assets + 1]
         predicted_log_returns: Predicted log-returns (used as mu) [horizon, n_assets]
-        cov_matrix: Covariance matrix of returns [n_assets, n_assets] (assumed constant)
+        cov_matrix: Covariance matrix of RISKY returns [n_assets, n_assets]
         config: MPC configuration
         
     Returns:
-        optimal_weights: [horizon, n_assets]
+        optimal_weights: [horizon, n_assets + 1]
     """
     H, N = predicted_log_returns.shape
     
-    # Variables
-    w = cp.Variable((H, N))
+    # Ensure current_weights matches N+1
+    if len(current_weights) != N + 1:
+        if len(current_weights) == N:
+            current_weights = np.append(current_weights, 0.0)
+        else:
+            raise ValueError(f"Expected {N+1} weights, got {len(current_weights)}")
+            
+    # Variables (include cash)
+    w = cp.Variable((H, N + 1))
     
     objective_terms = []
     constraints = []
@@ -148,15 +176,25 @@ def solve_mpc_mean_variance(
     cost_0 = config.cost_coeff * cp.norm(w[0] - current_weights, 1)
     objective_terms.append(-cost_0)
     
+    # Cash return (log approx)
+    r_f = config.risk_free_rate
+    
     for t in range(H):
         # Expected return: w^T mu
         # Use log-returns as approximation for mu
-        mu = predicted_log_returns[t]
-        ret_term = w[t] @ mu
+        # w[t] is [N+1], predicted_log_returns[t] is [N]
+        # mu_full = [predicted... ; r_f]
+        mu_risky = predicted_log_returns[t]
         
-        # Variance risk: w^T Sigma w
-        # We use quad_form(w, Sigma)
-        risk_term = config.gamma * cp.quad_form(w[t], cov_matrix)
+        # Split weights into risky and cash
+        w_risky = w[t][:N]
+        w_cash = w[t][N]
+        
+        ret_term = w_risky @ mu_risky + w_cash * r_f
+        
+        # Variance risk: w_risky^T Sigma w_risky
+        # Cash has 0 variance
+        risk_term = config.gamma * cp.quad_form(w_risky, cov_matrix)
         
         objective_terms.append(ret_term - risk_term)
         
@@ -182,4 +220,3 @@ def solve_mpc_mean_variance(
         return np.tile(current_weights, (H, 1)), {"status": problem.status}
         
     return w.value, {"status": problem.status, "value": problem.value}
-

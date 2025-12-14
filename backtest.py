@@ -45,23 +45,26 @@ class Strategy(ABC):
         
         Args:
             t: Current time index in the test set
-            current_weights: Current portfolio weights [n_assets]
+            current_weights: Current portfolio weights [n_assets + 1] (last is cash)
             env: Finance environment (provides access to history)
             lookback_window: Number of past days to use for estimation
             
         Returns:
-            New weights [n_assets]
+            New weights [n_assets + 1]
         """
         pass
 
 class BuyAndHoldStrategy(Strategy):
-    """Buy and Hold strategy (Equal Weight)."""
+    """Buy and Hold strategy (Equal Weight in stocks, zero cash)."""
     
     def rebalance(self, t, current_weights, env, lookback_window=60):
         # Only rebalance at the very beginning to equal weights
         if t == 0:
-            n_assets = env.n_assets
-            return np.ones(n_assets) / n_assets
+            # current_weights size is n_assets + 1
+            n_assets = len(current_weights) - 1
+            w = np.zeros(len(current_weights))
+            w[:n_assets] = 1.0 / n_assets
+            return w
         return current_weights
 
 class KoopmanMPCStrategy(Strategy):
@@ -79,9 +82,6 @@ class KoopmanMPCStrategy(Strategy):
         
     def rebalance(self, t, current_weights, env, lookback_window=60):
         # Get current observation Y_t
-        # env.test_dataset[t] returns (Y_t, Y_{t+1}) or sequence
-        # We just need Y_t
-        
         obs = env.test_dataset.data[t].to(self.device).unsqueeze(0) # [1, obs_size]
         
         # Forecast future log-returns using Koopman
@@ -90,18 +90,11 @@ class KoopmanMPCStrategy(Strategy):
         
         with torch.no_grad():
             self.model.eval()
-            # Rollout
-            # We use every-step re-encoding if we had ground truth, but for control
-            # we only have the current state. So we must do pure Koopman rollout
-            # or use predicted states.
             
             # Encode current state
             z = self.model.encode(obs)
             
             pred_log_returns = []
-            
-            # First step: next return y_{t+1}
-            # The model predicts x_{t+1} which contains y_{t+1}
             
             curr_z = z
             for _ in range(H):
@@ -121,6 +114,7 @@ class KoopmanMPCStrategy(Strategy):
             pred_log_returns = np.array(pred_log_returns) # [H, n_assets]
             
         # Solve MPC
+        # mpc_config has risk_free_rate, so solve_mpc adds cash column automatically
         new_weights, info = solve_mpc_log_utility(
             current_weights, 
             pred_log_returns, 
@@ -151,24 +145,27 @@ def run_backtest(
     n_assets = env.n_assets
     
     # Initialize state
-    cash = config.initial_capital
-    weights = np.zeros(n_assets)
+    # Weights now include cash as the last element (size = n_assets + 1)
+    weights = np.zeros(n_assets + 1)
+    weights[:n_assets] = 1.0 / n_assets # Initial equal weight in stocks
+    weights[n_assets] = 0.0 # Initial 0 cash
+    
     portfolio_value = config.initial_capital
+    current_weights = weights
     
     history = []
     
-    # Initial Weights (1/N) to ensure feasibility of turnover constraints at t=0
-    current_weights = np.ones(n_assets) / n_assets
-
     iter_range = range(0, n_steps, config.rebalance_freq)
     if verbose:
         iter_range = tqdm(iter_range, desc="Backtesting")
     
     # Pre-load real returns for efficiency
-    # These are standardized in the dataset, need to destandardize
     all_data = env.test_dataset.data.to(env.test_dataset.data.device)
     all_returns_std = env.extract_current_returns(all_data)
     all_returns = env.destandardize_returns(all_returns_std).cpu().numpy()
+    
+    # Cash return (daily)
+    cash_ret = np.exp(config.risk_free_rate) - 1.0
     
     for t in iter_range:
         # 1. Rebalance Step
@@ -184,28 +181,29 @@ def run_backtest(
         portfolio_value -= cost
         
         # 3. Simulate Market Step (t -> t+1)
-        # Realized return at t+1 (using data at t+1)
         port_ret = 0.0
         
-        # Note: all_returns[t+1] is the return from t to t+1
         if t + 1 < len(all_returns):
-            realized_log_ret = all_returns[t+1]
-            realized_ret = np.exp(realized_log_ret) - 1.0
+            # Risky asset returns
+            realized_log_ret_risky = all_returns[t+1]
+            realized_ret_risky = np.exp(realized_log_ret_risky) - 1.0
+            
+            # Full return vector
+            realized_ret_full = np.append(realized_ret_risky, cash_ret)
             
             # Portfolio return
-            port_ret = np.sum(current_weights * realized_ret)
+            port_ret = np.sum(current_weights * realized_ret_full)
             
             # Update Value
             portfolio_value *= (1.0 + port_ret)
             
             # Update Weights (drift)
             # w_i(t+1) = w_i(t) * (1+r_i) / (1+r_p)
-            # Add epsilon to avoid division by zero if port_ret is -1.0
             denom = 1.0 + port_ret
             if abs(denom) < 1e-8:
                 denom = 1e-8
             
-            current_weights = current_weights * (1.0 + realized_ret) / denom
+            current_weights = current_weights * (1.0 + realized_ret_full) / denom
         
         # Record stats
         history.append({
@@ -213,7 +211,8 @@ def run_backtest(
             'portfolio_value': portfolio_value,
             'return': port_ret,
             'turnover': turnover,
-            'cost': cost
+            'cost': cost,
+            'cash_weight': current_weights[-1] # Track cash usage
         })
         
     return pd.DataFrame(history)
@@ -240,15 +239,19 @@ def calculate_metrics(df: pd.DataFrame) -> Dict:
     # Total Turnover
     avg_turnover = df['turnover'].mean()
     
-    return {
+    metrics = {
         'Sharpe Ratio': sharpe,
         'Max Drawdown': max_dd,
         'Avg Turnover': avg_turnover,
         'Final Value': df['portfolio_value'].iloc[-1],
         'Total Return': (df['portfolio_value'].iloc[-1] / df['portfolio_value'].iloc[0]) - 1.0
     }
+    
+    if 'cash_weight' in df.columns:
+        metrics['Avg Cash Weight'] = df['cash_weight'].mean()
+        
+    return metrics
 
 if __name__ == "__main__":
     # Example usage
     pass
-
