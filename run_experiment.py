@@ -34,13 +34,17 @@ def main():
     # 1. Load Model
     parser = argparse.ArgumentParser(description='Run experiment evaluation')
     parser.add_argument('--path', type=str, help='Path to experiment run directory', default=None)
+    parser.add_argument('--search_dir', type=str, help='Directory to search for latest run', default=None)
     args = parser.parse_args()
 
     if args.path:
         run_dir = Path(args.path)
     else:
         # Find latest run automatically
-        search_dirs = [Path("runs/kae_finance"), Path("runs/kae")]
+        if args.search_dir:
+            search_dirs = [Path(args.search_dir)]
+        else:
+            search_dirs = [Path("runs/kae_finance"), Path("runs/kae")]
         latest_run = None
         latest_time = None
         

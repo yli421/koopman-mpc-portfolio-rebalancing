@@ -26,15 +26,28 @@ module load python/3.10
 
 # Copy dataset to fast local storage ($SLURM_TMPDIR) 
 # cp /network/datasets/<dataset> $SLURM_TMPDIR/
+SEQ_LENGTH=2
+TARGET_SIZE=1024
+ENCODER_LAYERS="1024,1024"
+SPARSITY_COEFF=1.5
+LOG_DIR="./runs/kae_finance_seq${SEQ_LENGTH}"
 
 # --- Execution ---
 # Using uv as requested. 
 # Ensure 'uv' is in your PATH or installed in your user environment.
 echo "Starting job on node $(hostname)"
-uv run python train.py --config finance_sparse --env finance --num_steps 10000 --sequence_length 20
+uv run python train.py \
+    --config finance_sparse \
+    --env finance \
+    --num_steps 10000 \
+    --sequence_length $SEQ_LENGTH \
+    --target_size $TARGET_SIZE \
+    --encoder_layers $ENCODER_LAYERS \
+    --sparsity_coeff $SPARSITY_COEFF \
+    --log_dir $LOG_DIR
 
 # 2. Run the experiment to get baselines, backtest results, and portfolio value plots
-uv run python run_experiment.py
+uv run python run_experiment.py --search_dir $LOG_DIR
 
 # --- Cleanup/Saving ---
 # Copy results back to Scratch [cite: 95]

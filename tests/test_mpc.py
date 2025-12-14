@@ -15,7 +15,8 @@ def test_mpc_feasibility():
     w_opt, info = solve_mpc_log_utility(current_weights, predicted_log_returns, config)
     
     assert info["status"] == "optimal"
-    assert w_opt.shape == (H, N)
+    # Expect N + 1 assets (including cash)
+    assert w_opt.shape == (H, N + 1)
     
     # Check constraints
     for t in range(H):
@@ -52,5 +53,5 @@ def test_transaction_costs():
     w_opt, _ = solve_mpc_log_utility(current_weights, predicted_log_returns, config)
     
     # Should stay at [1.0, 0.0] roughly
-    assert np.allclose(w_opt[0], current_weights, atol=1e-2)
-
+    # Compare only the risky assets part
+    assert np.allclose(w_opt[0][:N], current_weights, atol=1e-2)
