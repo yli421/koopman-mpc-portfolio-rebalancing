@@ -1154,6 +1154,10 @@ def main():
                         help='Use pairwise (single-step) training instead of sequence training')
     parser.add_argument('--sequence_length', type=int, default=10,
                         help='Sequence length for sequence training (overrides config default)')
+    parser.add_argument('--embedding_dim', type=int, default=None,
+                        help='Embedding dimension for finance data (overrides config default)')
+    parser.add_argument('--resample_weekly', action='store_true',
+                        help='Resample finance data to weekly frequency')
     
     # Logging
     parser.add_argument('--log_dir', type=str, default='./runs/kae_finance',
@@ -1216,6 +1220,10 @@ def main():
         print("Using pairwise (single-step) training mode")
     if args.sequence_length is not None:
         cfg.TRAIN.SEQUENCE_LENGTH = args.sequence_length
+    if args.embedding_dim is not None:
+        cfg.ENV.FINANCE.EMBEDDING_DIM = args.embedding_dim
+    if args.resample_weekly:
+        cfg.ENV.FINANCE.RESAMPLE_WEEKLY = True
     if args.data_path is not None:
         cfg.ENV.FINANCE.CACHE_DIR = args.data_path
     

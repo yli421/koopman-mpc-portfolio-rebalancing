@@ -66,6 +66,8 @@ class FinanceDataConfig:
     val_end: str = "2020-12-31"
     embedding_dim: int = 5  # Number of lagged days in embedding
     cache_dir: Optional[str] = None
+    resample_weekly: bool = False
+
 
 
 @dataclass 
@@ -466,6 +468,19 @@ def load_finance_data(
     # Compute log-returns
     log_returns = compute_log_returns(prices)
     
+    # Resample to weekly if requested
+    if config.resample_weekly:
+        print("Resampling data to weekly frequency...")
+        # Resample to weekly (Friday) sum of log-returns
+        # Note: Sum of log-returns = log(Price_end / Price_start) which is correct for period return
+        log_returns = log_returns.resample('W-FRI').sum()
+        # Drop any weeks with 0 return (likely holidays/missing data) if appropriate, 
+        # but for now we keep them to maintain time grid. 
+        # However, we should drop the first/last if they are incomplete.
+        
+        # Re-compute stats on weekly data
+        print(f"Weekly resampling: {len(log_returns)} weeks")
+    
     # Compute standardization stats from training data only
     stats = compute_standardization_stats(log_returns, config.train_end)
     
@@ -773,6 +788,7 @@ def create_finance_env(
             val_end=finance_cfg.VAL_END,
             embedding_dim=finance_cfg.EMBEDDING_DIM,
             cache_dir=finance_cfg.CACHE_DIR,
+            resample_weekly=finance_cfg.RESAMPLE_WEEKLY,
         )
         # Use TRAIN.SEQUENCE_LENGTH if not overridden (for sequence training)
         if sequence_length is None:

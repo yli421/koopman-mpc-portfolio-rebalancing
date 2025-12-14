@@ -217,7 +217,7 @@ def run_backtest(
         
     return pd.DataFrame(history)
 
-def calculate_metrics(df: pd.DataFrame) -> Dict:
+def calculate_metrics(df: pd.DataFrame, freq: str = 'daily') -> Dict:
     """Calculate Sharpe, Max Drawdown, Turnover."""
     if len(df) == 0:
         return {}
@@ -225,10 +225,15 @@ def calculate_metrics(df: pd.DataFrame) -> Dict:
     # Returns
     returns = df['return'].values
     
-    # Annualized Sharpe (assuming daily data, 252 days)
+    # Annualized Sharpe
+    if freq == 'weekly':
+        annual_factor = np.sqrt(52)
+    else:
+        annual_factor = np.sqrt(252)
+        
     mean_ret = np.mean(returns)
     std_ret = np.std(returns)
-    sharpe = np.sqrt(252) * mean_ret / (std_ret + 1e-8)
+    sharpe = annual_factor * mean_ret / (std_ret + 1e-8)
     
     # Max Drawdown
     cum_returns = (1 + returns).cumprod()

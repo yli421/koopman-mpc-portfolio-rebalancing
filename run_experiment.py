@@ -94,8 +94,11 @@ def main():
         horizon=5,
         gamma=0.0, # Log Utility
         cost_coeff=0.001,
-        max_turnover=0.5
+        max_turnover=0.2
     )
+    
+    # Determine frequency for metrics
+    freq = 'weekly' if cfg.ENV.FINANCE.RESAMPLE_WEEKLY else 'daily'
     
     # 3. Run Strategies
     results = {}
@@ -105,7 +108,7 @@ def main():
     print("\n[1/4] Running Buy & Hold Strategy...")
     bh_strat = BuyAndHoldStrategy()
     results['Buy & Hold'] = run_backtest(bh_strat, env, bt_config)
-    metrics['Buy & Hold'] = calculate_metrics(results['Buy & Hold'])
+    metrics['Buy & Hold'] = calculate_metrics(results['Buy & Hold'], freq=freq)
     
     # --- Markowitz ---
     print("\n[2/4] Running Markowitz Strategy...")
@@ -113,7 +116,7 @@ def main():
     # Adjust cost_coeff to be consistent or slightly higher if turnover is crazy.
     mark_strat = MarkowitzStrategy(risk_aversion=1.0, cost_coeff=0.001)
     results['Markowitz'] = run_backtest(mark_strat, env, bt_config)
-    metrics['Markowitz'] = calculate_metrics(results['Markowitz'])
+    metrics['Markowitz'] = calculate_metrics(results['Markowitz'], freq=freq)
     
     # --- DMD (Linear Koopman) ---
     print("\n[3/4] Running DMD Strategy...")
@@ -121,13 +124,13 @@ def main():
     train_data = env.train_dataset.data
     dmd_strat = DMDStrategy(train_data, mpc_config)
     results['DMD-MPC'] = run_backtest(dmd_strat, env, bt_config)
-    metrics['DMD-MPC'] = calculate_metrics(results['DMD-MPC'])
+    metrics['DMD-MPC'] = calculate_metrics(results['DMD-MPC'], freq=freq)
     
     # --- Koopman-MPC (Deep) ---
     print("\n[4/4] Running Koopman-MPC Strategy...")
     kmpc_strat = KoopmanMPCStrategy(model, mpc_config)
     results['Koopman-MPC'] = run_backtest(kmpc_strat, env, bt_config)
-    metrics['Koopman-MPC'] = calculate_metrics(results['Koopman-MPC'])
+    metrics['Koopman-MPC'] = calculate_metrics(results['Koopman-MPC'], freq=freq)
     
     # 4. Results
     print("\n" + "="*50)

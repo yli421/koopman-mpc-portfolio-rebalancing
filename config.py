@@ -204,9 +204,10 @@ class FinanceConfig:
     END_DATE: str = "2024-12-31"
     TRAIN_END: str = "2018-12-31"
     VAL_END: str = "2020-12-31"
-    EMBEDDING_DIM: int = 20  # Number of lagged days in embedding
+    EMBEDDING_DIM: int = 10  # Number of lagged days in embedding
     CACHE_DIR: Optional[str] = ".cache/finance_data"  # Default cache directory
     SEQUENCE_LENGTH: int = 10  # >1 = sequence training (better for forecasting)
+    RESAMPLE_WEEKLY: bool = False  # Resample data to weekly intervals
 
 
 @dataclass
@@ -462,10 +463,10 @@ def get_train_finance_sparse_config() -> Config:
     cfg.MODEL.DECODER.USE_BIAS = False
     
     # Loss weights (tuned for finance)
-    cfg.MODEL.RES_COEFF = 0.1
-    cfg.MODEL.RECONST_COEFF = 1.0   
-    cfg.MODEL.PRED_COEFF = 1.5     # Reduced x10: Stop overfitting to noise/stochasticity
-    cfg.MODEL.SPARSITY_COEFF = 1.5  # Increased x10: Force high sparsity (>80%) to find factors
+    cfg.MODEL.RES_COEFF = 1.0
+    cfg.MODEL.RECONST_COEFF = 0.02   
+    cfg.MODEL.PRED_COEFF = 1.0     
+    cfg.MODEL.SPARSITY_COEFF = 0.5
     
     # Training
     cfg.TRAIN.LR = 1e-3
