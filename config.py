@@ -464,7 +464,7 @@ def get_train_finance_sparse_config() -> Config:
     # Loss weights (tuned for finance)
     cfg.MODEL.RES_COEFF = 0.1
     cfg.MODEL.RECONST_COEFF = 1.0   
-    cfg.MODEL.PRED_COEFF = 0.01     # Reduced x10: Stop overfitting to noise/stochasticity
+    cfg.MODEL.PRED_COEFF = 1.5     # Reduced x10: Stop overfitting to noise/stochasticity
     cfg.MODEL.SPARSITY_COEFF = 1.5  # Increased x10: Force high sparsity (>80%) to find factors
     
     # Training
