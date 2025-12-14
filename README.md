@@ -38,7 +38,7 @@ This allows us to:
 
 ```bash
 # 1. Train the Koopman model on finance data
-uv run python train.py --config finance_sparse --env finance --num_steps 10000
+uv run python train.py --config finance_sparse --env finance --num_steps 1000 --sequence_length 10
 
 # 2. Run the experiment to get baselines, backtest results, and portfolio value plots
 uv run python run_experiment.py
