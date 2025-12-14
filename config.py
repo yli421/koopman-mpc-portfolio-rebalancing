@@ -462,10 +462,10 @@ def get_train_finance_sparse_config() -> Config:
     cfg.MODEL.DECODER.USE_BIAS = False
     
     # Loss weights (tuned for finance)
-    cfg.MODEL.RES_COEFF = 0.1       # Reduced: Don't obsess over linearity yet
-    cfg.MODEL.RECONST_COEFF = 0.1   # Increased x100: FORCE it to reconstruct the data
-    cfg.MODEL.PRED_COEFF = 0.1      # Increased x100: FORCE it to predict the future
-    cfg.MODEL.SPARSITY_COEFF = 1e-2 # Increased x10: Make it actually sparse
+    cfg.MODEL.RES_COEFF = 0.1
+    cfg.MODEL.RECONST_COEFF = 1.0   
+    cfg.MODEL.PRED_COEFF = 0.01     # Reduced x10: Stop overfitting to noise/stochasticity
+    cfg.MODEL.SPARSITY_COEFF = 1.5  # Increased x10: Force high sparsity (>80%) to find factors
     
     # Training
     cfg.TRAIN.LR = 1e-3

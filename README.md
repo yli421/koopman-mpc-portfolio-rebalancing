@@ -40,32 +40,10 @@ This allows us to:
 # 1. Train the Koopman model on finance data
 uv run python train.py --config finance_sparse --env finance --num_steps 10000
 
-# 2. Run backtesting with the trained model (after training completes)
-# The backtest runs automatically at the end of training, or manually:
-uv run python -c "
-from config import get_config
-from train import train
-from backtest import run_backtest, BuyAndHoldStrategy, KoopmanMPCStrategy, BacktestConfig, calculate_metrics
-from mpc import MPCConfig
-from data_finance import create_finance_env
-import torch
-
-# Load trained model
-cfg = get_config('finance_sparse')
-checkpoint = torch.load('runs/kae_finance/<timestamp>/checkpoint.pt')
-from model import make_model
-env = create_finance_env(from_config=cfg)
-model = make_model(cfg, env.observation_size)
-model.load_state_dict(checkpoint['model_state_dict'])
-model.eval()
-
-# Run Koopman-MPC backtest
-mpc_cfg = MPCConfig(horizon=5, cost_coeff=0.001)
-bt_cfg = BacktestConfig(initial_capital=10000, horizon=5)
-strategy = KoopmanMPCStrategy(model, mpc_cfg)
-results = run_backtest(strategy, env, bt_cfg)
-print(calculate_metrics(results))
-"
+# 2. Run the experiment to get baselines, backtest results, and portfolio value plots
+uv run python run_experiment.py
+# if you want to specify a path you can:
+uv run python run_experiment.py --path runs/kae_finance/YOUR_TIMESTAMP_FOLDER
 ```
 
 ### Training the Koopman Model
@@ -74,7 +52,7 @@ The `finance_sparse` config is pre-configured for financial data:
 
 ```bash
 # Basic training
-uv run python train.py --config finance_sparse --env finance --num_steps 10000
+uv run python train.py --config finance_sparse --env finance --num_steps 100
 
 # With custom parameters
 uv run python train.py \
