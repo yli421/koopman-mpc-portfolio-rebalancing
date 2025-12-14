@@ -19,6 +19,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List
+from tqdm import tqdm
 
 print("Loading torch...")
 import torch
@@ -397,6 +398,9 @@ def train_finance(
     global_step = start_step
     epoch = start_epoch
     
+    # Initialize tqdm
+    pbar = tqdm(total=cfg.TRAIN.NUM_STEPS, initial=start_step, desc="Training")
+    
     # Training loop - iterate over epochs until we reach NUM_STEPS
     while global_step < cfg.TRAIN.NUM_STEPS:
         epoch += 1
@@ -424,14 +428,23 @@ def train_finance(
             epoch_loss += metrics['loss']
             epoch_batches += 1
             
-            # Print progress
+            # Update progress bar
+            pbar.update(1)
+            pbar.set_postfix({
+                'loss': f"{metrics['loss']:.4f}",
+                'epoch': epoch,
+            })
+
+            # Print detailed metrics every 100 steps
             if global_step % 100 == 0:
-                print(f"Step {global_step}/{cfg.TRAIN.NUM_STEPS} (Epoch {epoch}) | "
-                      f"Loss: {metrics['loss']:.4f} | "
-                      f"Res: {metrics['residual_loss']:.4f} | "
-                      f"Recon: {metrics['reconst_loss']:.4f} | "
-                      f"Pred: {metrics['prediction_loss']:.4f} | "
-                      f"Sparsity: {metrics['sparsity_ratio']:.3f}")
+                pbar.write(
+                    f"Step {global_step} | "
+                    f"Loss: {metrics['loss']:.4f} | "
+                    f"Res: {metrics['residual_loss']:.4f} | "
+                    f"Recon: {metrics['reconst_loss']:.4f} | "
+                    f"Pred: {metrics['prediction_loss']:.4f} | "
+                    f"Sparsity: {metrics['sparsity_ratio']:.3f}"
+                )
             
             # Periodic evaluation and checkpoint saving
             if global_step % 500 == 0 or global_step == cfg.TRAIN.NUM_STEPS - 1:
@@ -445,8 +458,7 @@ def train_finance(
                 logger.log_scalar('eval/final_mse_reencode', eval_results['final_mse_reencode'], global_step)
                 logger.log_scalar('eval/final_mse_no_reencode', eval_results['final_mse_no_reencode'], global_step)
                 
-                print(f"  Eval | MSE (reencode): {eval_results['mean_mse_reencode']:.4f} | "
-                      f"MSE (no reencode): {eval_results['mean_mse_no_reencode']:.4f}")
+                pbar.write(f"Step {global_step} | Eval MSE (reencode): {eval_results['mean_mse_reencode']:.4f}")
                 
                 # Compute validation loss
                 val_loss = 0.0
@@ -469,7 +481,6 @@ def train_finance(
                 
                 avg_val_loss = val_loss / max(val_batches, 1)
                 logger.log_scalar('val/loss', avg_val_loss, global_step)
-                print(f"  Val Loss: {avg_val_loss:.4f}")
                 
                 # Save checkpoint
                 checkpoint_dict = {
@@ -489,14 +500,16 @@ def train_finance(
                 if avg_val_loss < best_eval_error:
                     best_eval_error = avg_val_loss
                     torch.save(checkpoint_dict, run_dir / 'checkpoint.pt')
-                    print(f"  Saved best checkpoint (val loss: {best_eval_error:.4f})")
+                    pbar.write(f"  Saved best checkpoint (val loss: {best_eval_error:.4f})")
             
             global_step += 1
         
-        # End of epoch summary
-        if epoch_batches > 0:
+        # End of epoch summary - only print every 10 epochs to reduce noise
+        if epoch_batches > 0 and epoch % 10 == 0:
             avg_epoch_loss = epoch_loss / epoch_batches
-            print(f"Epoch {epoch} complete | Avg Loss: {avg_epoch_loss:.4f}")
+            # pbar.write(f"Epoch {epoch} complete | Avg Loss: {avg_epoch_loss:.4f}")
+    
+    pbar.close()
     
     # Save final metrics and close logger
     with open(run_dir / 'final_metrics.json', 'w') as f:
@@ -846,7 +859,10 @@ def train(
     
     best_eval_final_error = float('inf')
     
-    for step in range(start_step, cfg.TRAIN.NUM_STEPS):
+    # Initialize tqdm
+    pbar = tqdm(range(start_step, cfg.TRAIN.NUM_STEPS), desc="Training")
+    
+    for step in pbar:
         # Generate batch
         rng = rngs[step % num_batches]
         
@@ -867,20 +883,29 @@ def train(
         
         logger.log_dict(metrics, step, prefix='train')
         
+        pbar.set_postfix({
+            'loss': f"{metrics['loss']:.4f}",
+            'sparsity': f"{metrics['sparsity_ratio']:.3f}"
+        })
+
         if step % 100 == 0:
             if cfg.TRAIN.USE_SEQUENCE_LOSS:
-                print(f"Step {step}/{cfg.TRAIN.NUM_STEPS} | "
-                      f"Loss: {metrics['loss']:.4f} | "
-                      f"Align: {metrics['alignment_loss']:.4f} | "
-                      f"Recon: {metrics['reconst_loss']:.4f} | "
-                      f"Pred: {metrics['prediction_loss']:.4f} | "
-                      f"Sparsity: {metrics['sparsity_ratio']:.3f}")
+                pbar.write(
+                    f"Step {step} | "
+                    f"Loss: {metrics['loss']:.4f} | "
+                    f"Align: {metrics['alignment_loss']:.4f} | "
+                    f"Recon: {metrics['reconst_loss']:.4f} | "
+                    f"Pred: {metrics['prediction_loss']:.4f} | "
+                    f"Sparsity: {metrics['sparsity_ratio']:.3f}"
+                )
             else:
-                print(f"Step {step}/{cfg.TRAIN.NUM_STEPS} | "
-                      f"Loss: {metrics['loss']:.4f} | "
-                      f"Res: {metrics['residual_loss']:.4f} | "
-                      f"Recon: {metrics['reconst_loss']:.4f} | "
-                      f"Sparsity: {metrics['sparsity_ratio']:.3f}")
+                pbar.write(
+                    f"Step {step} | "
+                    f"Loss: {metrics['loss']:.4f} | "
+                    f"Res: {metrics['residual_loss']:.4f} | "
+                    f"Recon: {metrics['reconst_loss']:.4f} | "
+                    f"Sparsity: {metrics['sparsity_ratio']:.3f}"
+                )
         
         # Periodic evaluation and checkpoint saving
         if step % 500 == 0 or step == cfg.TRAIN.NUM_STEPS - 1:
@@ -894,8 +919,7 @@ def train(
             logger.log_scalar('eval/mean_error', eval_results['mean_error'], step)
             logger.log_scalar('eval/final_error', eval_results['final_error'], step)
             
-            print(f"  Eval | Mean error: {eval_results['mean_error']:.4f} | "
-                  f"Final error: {eval_results['final_error']:.4f}")
+            pbar.write(f"Step {step} | Eval Mean error: {eval_results['mean_error']:.4f}")
             
             # Save checkpoint
             checkpoint_dict = {
@@ -913,7 +937,9 @@ def train(
             if eval_results['final_error'] < best_eval_final_error:
                 best_eval_final_error = eval_results['final_error']
                 torch.save(checkpoint_dict, run_dir / 'checkpoint.pt')
-                print(f"  Saved best checkpoint (final eval error: {best_eval_final_error:.4f})")
+                pbar.write(f"  Saved best checkpoint (final eval error: {best_eval_final_error:.4f})")
+    
+    pbar.close()
     
     # Save final metrics and close logger
     with open(run_dir / 'final_metrics.json', 'w') as f:
