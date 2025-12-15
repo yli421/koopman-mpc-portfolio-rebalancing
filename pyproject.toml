@@ -26,6 +26,7 @@ dependencies = [
     "seaborn>=0.13.2",
     "cvxpy>=1.7.5",
     "pyarrow>=20.0.0",
+    "statsmodels>=0.14.6",
 ]
 
 [project.optional-dependencies]
