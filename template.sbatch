@@ -28,6 +28,7 @@ module load python/3.10
 # cp /network/datasets/<dataset> $SLURM_TMPDIR/
 NUM_STEPS=5000
 SEQ_LENGTH=3
+EMBEDDING_DIM=6 # set this to 2x the sequence length
 TARGET_SIZE=1024
 ENCODER_LAYERS="1024,1024"
 SPARSITY_COEFF=0.3
@@ -48,7 +49,7 @@ uv run python train.py \
     --env finance \
     --num_steps $NUM_STEPS \
     --sequence_length $SEQ_LENGTH \
-    --embedding_dim 6 \
+    --embedding_dim $EMBEDDING_DIM \
     --resample_weekly \
     --target_size $TARGET_SIZE \
     --encoder_layers $ENCODER_LAYERS \
