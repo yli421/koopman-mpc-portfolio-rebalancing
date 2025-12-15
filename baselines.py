@@ -16,6 +16,7 @@ import numpy as np
 import cvxpy as cp
 from scipy.linalg import pinv
 import torch
+from statsmodels.tsa.api import VAR
 
 from backtest import Strategy
 from mpc import solve_mpc_log_utility, MPCConfig, solve_mpc_mean_variance
@@ -104,6 +105,70 @@ class MarkowitzStrategy(Strategy):
         )
         
         return w_opt[0]
+
+
+class VARStrategy(Strategy):
+    """
+    Vector Autoregression (VAR) Strategy.
+    Fits a VAR(p) model on standardized returns of the Training set.
+    """
+    def __init__(self, train_data: torch.Tensor, mpc_config: MPCConfig, n_assets: int, lags: int = 5):
+        self.mpc_config = mpc_config
+        self.lags = lags
+        
+        # Extract standardized returns from embedded train_data
+        # train_data: [N, embedding_dim * n_assets]
+        # We assume the first n_assets columns correspond to y_t
+        returns_data = train_data[:, :n_assets].cpu().numpy()
+        
+        # Fit VAR model
+        self.model = VAR(returns_data)
+        # Fit with fixed lag order
+        self.results = self.model.fit(lags)
+        
+    def rebalance(self, t, current_weights, env: FinanceEnv, lookback_window: int = 60) -> np.ndarray:
+        # Get current state Y_t from test dataset
+        y_t_embedded = env.test_dataset.data[t].cpu().numpy()
+        
+        # Reconstruct history needed for forecast
+        # Y_t = [y_t, y_{t-1}, ..., y_{t-d+1}]
+        # We need [y_{t-p+1}, ..., y_t] for VAR forecast
+        
+        embedding_dim = env.embedding_dim
+        n_assets = env.n_assets
+        
+        if self.lags > embedding_dim:
+            # Fallback: if we need more lags than embedding, we can't easily get them from single obs
+            # Ideally should not happen with default config
+            raise ValueError(f"VAR lags ({self.lags}) cannot be larger than embedding dim ({embedding_dim})")
+
+        # Reshape to (embedding_dim, n_assets)
+        # Row 0 is y_t, Row 1 is y_{t-1}...
+        y_history_rev = y_t_embedded.reshape(embedding_dim, n_assets)
+        
+        # Take the most recent `lags` observations
+        # We need indices 0 to lags-1
+        recent_history_rev = y_history_rev[:self.lags]
+        
+        # Flip to get chronological order: [y_{t-p+1}, ..., y_t]
+        history = recent_history_rev[::-1]
+        
+        # Forecast
+        H = self.mpc_config.horizon
+        pred_std = self.results.forecast(history, steps=H)
+        
+        # Destandardize
+        pred_tensor = torch.from_numpy(pred_std).float().to(env.test_dataset.data.device)
+        pred_real = env.destandardize_returns(pred_tensor).cpu().numpy()
+        
+        # Solve MPC
+        new_weights, info = solve_mpc_log_utility(
+            current_weights,
+            pred_real,
+            self.mpc_config
+        )
+        
+        return new_weights[0]
 
 
 class DMDStrategy(Strategy):

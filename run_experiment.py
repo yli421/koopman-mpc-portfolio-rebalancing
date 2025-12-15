@@ -28,7 +28,7 @@ from backtest import (
     KoopmanMPCStrategy,
     calculate_metrics
 )
-from baselines import MarkowitzStrategy, DMDStrategy
+from baselines import MarkowitzStrategy, DMDStrategy, VARStrategy
 
 def main():
     # 1. Locate Run Directory
@@ -130,9 +130,18 @@ def main():
     dmd_strat = DMDStrategy(train_data, mpc_config)
     results['DMD-MPC'] = run_backtest(dmd_strat, env, bt_config)
     metrics['DMD-MPC'] = calculate_metrics(results['DMD-MPC'], freq=freq)
+
+    # --- VAR-MPC ---
+    print("\n[4/5] Running VAR Strategy...")
+    # Fit VAR on training data
+    # Use embedding_dim as lags if reasonable, else 5
+    lags = min(env.embedding_dim, 5)
+    var_strat = VARStrategy(train_data, mpc_config, n_assets=env.n_assets, lags=lags)
+    results['VAR-MPC'] = run_backtest(var_strat, env, bt_config)
+    metrics['VAR-MPC'] = calculate_metrics(results['VAR-MPC'], freq=freq)
     
     # --- Koopman-MPC (Deep) - for each checkpoint ---
-    print("\n[4/5] Running Koopman-MPC Strategies...")
+    print("\n[5/5] Running Koopman-MPC Strategies...")
     
     for label, ckpt_path in checkpoints_to_eval:
         print(f"  Evaluating {label} Checkpoint ({ckpt_path.name})...")
@@ -166,6 +175,7 @@ def main():
         'Buy & Hold': 'gray',
         'Markowitz': 'blue',
         'DMD-MPC': 'green',
+        'VAR-MPC': 'purple',
         'Koopman-MPC (Best)': 'red',
         'Koopman-MPC (Last)': 'red' # Reuse red for whichever wins
     }
@@ -173,6 +183,7 @@ def main():
         'Buy & Hold': '--',
         'Markowitz': '-',
         'DMD-MPC': '-',
+        'VAR-MPC': '-',
         'Koopman-MPC (Best)': '-',
         'Koopman-MPC (Last)': '-'
     }
@@ -219,7 +230,7 @@ def main():
     plt.grid(True, alpha=0.3)
     
     plot_path = run_dir / "equity_curve_comparison.png"
-    plt.savefig(plot_path)
+    plt.savefig(plot_path, dpi=300)
     print(f"\nComparison plot saved to {plot_path}")
 
 if __name__ == "__main__":
