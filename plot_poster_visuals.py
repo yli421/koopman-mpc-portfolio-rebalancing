@@ -110,7 +110,7 @@ def plot_forecast_trajectories(
     # Select specific assets to plot
     # We want ABBV (Healthcare) and others from different sectors
     # Common liquid ones in our list: AAPL (Tech), JPM (Finance), XOM (Energy)
-    target_tickers = ['AAPL', 'BAC', 'GOOGL', 'GS', 'KO']
+    target_tickers = ['AAPL', 'BAC', 'GOOGL', 'GS'] # , 'KO'
     indices_to_plot = []
     
     for t in target_tickers:
