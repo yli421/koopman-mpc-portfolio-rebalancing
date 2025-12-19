@@ -8,9 +8,8 @@ This module provides:
 - PyTorch Dataset for pairwise and sequence training
 - Chronological train/val/test splitting
 
-Based on the project PDF (IFT6162):
-- Observations: Y_t = [y_t, y_{t-1}, ..., y_{t-d+1}] (time-delay embedding)
-- Returns: y_t = log(p_t) - log(p_{t-1})
+- Observations: X_t = [x_t, x_{t-1}, ..., x_{t-d+1}] (time-delay embedding)
+- Returns: x_t = log(p_t) - log(p_{t-1})
 - Chronological splits: Train 2012-2018, Val 2018-2020, Test 2021-2024
 """
 
@@ -64,7 +63,7 @@ class FinanceDataConfig:
     end_date: str = "2024-12-31"
     train_end: str = "2018-12-31"
     val_end: str = "2020-12-31"
-    embedding_dim: int = 5  # Number of lagged days in embedding
+    embedding_dim: int = 6  # Number of lagged timesteps in embedding
     cache_dir: Optional[str] = None
     resample_weekly: bool = False
 
@@ -684,7 +683,7 @@ class FinanceEnv:
             dataset,
             batch_size=batch_size,
             shuffle=shuffle,
-            drop_last=True,
+            drop_last=(split == 'train'),
             num_workers=1,
             pin_memory=True,
         )
