@@ -1,6 +1,7 @@
 # Koopman-MPC Portfolio Rebalancing
 
 PyTorch-based research codebase for **Koopman Model Predictive Control (MPC)** applied to dynamic portfolio rebalancing. The project learns Koopman operator representations of financial market dynamics and uses them for multi-step return forecasting and convex MPC-based portfolio optimization.
+![MPC demo](mpc_slow.gif)
 
 ## Overview
 
