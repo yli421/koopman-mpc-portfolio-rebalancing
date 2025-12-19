@@ -52,7 +52,7 @@ def plot_forecast_trajectories(
     device: str,
     output_dir: Path,
     horizon: int = 50,
-    n_assets_to_plot: int = 5
+    n_assets_to_plot: int = 4
 ):
     """Plot actual vs predicted price trajectories (1-step lookahead)."""
     print(f"Generating forecast trajectories for {n_assets_to_plot} assets...")
