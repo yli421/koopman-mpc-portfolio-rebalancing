@@ -45,8 +45,6 @@ LOG_DIR="./runs/kae_finance_weekly_seq${SEQ_LENGTH}"
 
 echo "Starting job on node $(hostname)"
 uv run python train.py \
-    --config finance_sparse \
-    --env finance \
     --num_steps $NUM_STEPS \
     --sequence_length $SEQ_LENGTH \
     --embedding_dim $EMBEDDING_DIM \

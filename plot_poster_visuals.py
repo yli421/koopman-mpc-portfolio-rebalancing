@@ -10,7 +10,6 @@ import matplotlib.dates as mdates
 from typing import Dict, List, Tuple
 
 from config import Config
-from data import make_env
 from model import make_model
 from data_finance import create_finance_env, FinanceEnv
 from evaluation import rollout_no_reencode, rollout_every_step_reencode, rollout_periodic_reencode

@@ -1,17 +1,11 @@
 """
-Training script for Koopman Autoencoder models.
+Training script for Koopman Autoencoder models - Finance Version.
 
 This script provides a complete training pipeline for learning Koopman operator
-representations of dynamical systems using PyTorch.
+representations of financial market dynamics using PyTorch.
 
 Usage:
-    python train.py --config generic_sparse --env duffing --num_steps 20000
-
-Or use it programmatically:
-    from train import train
-    cfg = get_config("generic_sparse")
-    cfg.ENV.ENV_NAME = "duffing"
-    train(cfg, log_dir="./runs/experiment_001")
+    python train.py --num_steps 5000
 """
 
 import argparse
@@ -31,7 +25,6 @@ from config import Config, get_config
 print("Config loaded.")
 
 print("Loading data...")
-from data import make_env, VectorWrapper, generate_trajectory
 from data_finance import create_finance_env, FinanceEnv
 print("Data loaded.")
 
@@ -47,7 +40,6 @@ class MetricsLogger:
     """Simple file-based metrics logger.
     
     Logs metrics to JSON files for later analysis or plotting.
-    Can easily be replaced with wandb later.
     Uses buffered writes to reduce I/O overhead.
     """
     
@@ -189,36 +181,6 @@ def build_optimizer(model: nn.Module, cfg: Config) -> torch.optim.Optimizer:
     return torch.optim.AdamW(param_groups)
 
 
-def evaluate(
-    model: nn.Module,
-    x: torch.Tensor,
-    env_step_fn,
-    num_steps: int = 50,
-) -> Dict[str, Any]:
-    """Quick evaluation helper used during training and unit tests."""
-    
-    # Lazy import to avoid loading evaluation module at startup
-    from evaluation import rollout_every_step_reencode
-
-    model.eval()
-    device = next(model.parameters()).device
-
-    with torch.no_grad():
-        true_traj = generate_trajectory(env_step_fn, x.cpu(), length=num_steps)
-        pred_traj = rollout_every_step_reencode(model, x.to(device), num_steps)
-
-        pred_traj_cpu = pred_traj.cpu()
-        step_error = torch.norm(pred_traj_cpu - true_traj, dim=-1).mean(dim=1)
-
-        return {
-            "true_trajectory": true_traj,
-            "pred_trajectory": pred_traj_cpu,
-            "pred_error": step_error,
-            "mean_error": step_error.mean().item(),
-            "final_error": step_error[-1].item(),
-        }
-
-
 def evaluate_finance(
     model: nn.Module,
     initial_states: torch.Tensor,
@@ -301,7 +263,7 @@ def evaluate_finance(
         }
 
 
-def train_finance(
+def train(
     cfg: Config,
     log_dir: Optional[str] = None,
     checkpoint_path: Optional[str] = None,
@@ -309,8 +271,7 @@ def train_finance(
 ) -> nn.Module:
     """Training function for finance data.
     
-    Uses PyTorch DataLoader instead of environment stepping since finance
-    data is pre-recorded rather than simulated.
+    Uses PyTorch DataLoader since finance data is pre-recorded.
     
     Args:
         cfg: Configuration object with ENV.ENV_NAME = "finance"
@@ -504,11 +465,6 @@ def train_finance(
             
             global_step += 1
         
-        # End of epoch summary - only print every 10 epochs to reduce noise
-        if epoch_batches > 0 and epoch % 10 == 0:
-            avg_epoch_loss = epoch_loss / epoch_batches
-            # pbar.write(f"Epoch {epoch} complete | Avg Loss: {avg_epoch_loss:.4f}")
-    
     pbar.close()
     
     # Save final metrics and close logger
@@ -516,20 +472,6 @@ def train_finance(
         json.dump(metrics, f, indent=2)
     
     logger.close()
-    
-    # Plot training metrics
-    print("-" * 80)
-    print("Plotting training metrics...")
-    from plot_training_metrics import plot_metrics
-    try:
-        plot_metrics(
-            log_dir=run_dir,
-            metrics_to_plot=None,
-            save_path=run_dir / 'training_metrics.png'
-        )
-        print(f"Training metrics plot saved to {run_dir / 'training_metrics.png'}")
-    except Exception as e:
-        print(f"Warning: Failed to plot training metrics: {e}")
     
     # Run finance-specific evaluation
     print("-" * 80)
@@ -565,492 +507,8 @@ def train_finance(
     with open(eval_results_path, 'w') as f:
         json.dump(eval_summary, f, indent=2)
     
-    # Generate forecasting plots
-    print("Generating forecasting plots...")
-    try:
-        _save_finance_plots(
-            eval_results=final_eval,
-            finance_env=finance_env,
-            output_dir=run_dir,
-        )
-    except Exception as e:
-        print(f"Warning: Failed to generate plots: {e}")
-        import traceback
-        traceback.print_exc()
-    
     print("-" * 80)
     print(f"Training complete! Results saved to {run_dir}")
-    
-    return model
-
-
-def _save_finance_plots(
-    eval_results: Dict[str, Any],
-    finance_env: FinanceEnv,
-    output_dir: Path,
-) -> None:
-    """Generate and save finance-specific evaluation plots.
-    
-    Creates:
-    1. MSE vs horizon curves for different rollout modes
-    2. Predicted vs actual returns for sample assets
-    3. Prediction correlation scatter plot
-    4. MSE bar chart comparing all modes
-    """
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    import numpy as np
-    
-    # Color scheme for plots
-    colors = {
-        'every_step': '#2ecc71',     # Green
-        'no_reencode': '#e74c3c',    # Red
-        'periodic_5': '#3498db',     # Blue
-        'periodic_10': '#9b59b6',    # Purple
-        'periodic_25': '#f39c12',    # Orange
-    }
-    linestyles = {
-        'every_step': '-',
-        'no_reencode': '--',
-        'periodic_5': '-.',
-        'periodic_10': ':',
-        'periodic_25': '-',
-    }
-    
-    # 1. MSE vs Horizon plot (all modes)
-    fig, ax = plt.subplots(figsize=(12, 7))
-    
-    mse_curves = eval_results.get('mse_curves', {})
-    if not mse_curves:
-        # Fallback to old format
-        mse_curves = {
-            'every_step': eval_results['mse_reencode'],
-            'no_reencode': eval_results['mse_no_reencode'],
-        }
-    
-    for mode, curve in mse_curves.items():
-        curve_np = curve.numpy() if hasattr(curve, 'numpy') else np.array(curve)
-        horizons = range(1, len(curve_np) + 1)
-        color = colors.get(mode, '#7f8c8d')
-        ls = linestyles.get(mode, '-')
-        label = mode.replace('_', ' ').title()
-        ax.plot(horizons, curve_np, label=label, linewidth=2, color=color, linestyle=ls)
-    
-    ax.set_xlabel('Prediction Horizon (days)', fontsize=13)
-    ax.set_ylabel('Mean Squared Error', fontsize=13)
-    ax.set_title('Multi-Step Prediction Error: Koopman Rollout Modes', fontsize=15)
-    ax.legend(loc='upper left', fontsize=11)
-    ax.grid(True, alpha=0.3)
-    ax.set_xlim(1, len(list(mse_curves.values())[0]))
-    
-    # Annotate best mode
-    best_mode = eval_results.get('best_mode', 'every_step')
-    best_mse = eval_results.get('best_mse', 0)
-    ax.annotate(f'Best: {best_mode.replace("_", " ")} (MSE={best_mse:.4f})',
-                xy=(0.98, 0.02), xycoords='axes fraction',
-                fontsize=11, ha='right', va='bottom',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-    
-    fig.tight_layout()
-    fig.savefig(output_dir / 'mse_vs_horizon.png', dpi=200)
-    plt.close(fig)
-    
-    # 2. Predicted vs Actual Returns plot (for a few assets)
-    pred = eval_results['pred_reencode']  # [horizon, batch, obs_size]
-    true = eval_results['true']  # [horizon, batch, obs_size]
-    
-    n_assets = finance_env.n_assets
-    tickers = finance_env.metadata.get('tickers', [f'Asset_{i}' for i in range(n_assets)])
-    
-    # Extract current returns (first n_assets of each observation)
-    pred_np = pred.numpy() if hasattr(pred, 'numpy') else np.array(pred)
-    true_np = true.numpy() if hasattr(true, 'numpy') else np.array(true)
-    pred_returns = pred_np[:, 0, :n_assets]  # [horizon, n_assets] - first sequence
-    true_returns = true_np[:, 0, :n_assets]
-    
-    # Plot first 4 assets
-    n_plot = min(4, n_assets)
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    axes = axes.flatten()
-    
-    horizon_len = min(50, pred_returns.shape[0])  # Show first 50 days
-    
-    for i, ax in enumerate(axes[:n_plot]):
-        ax.plot(range(horizon_len), true_returns[:horizon_len, i], 
-                label='Actual', linewidth=1.5, alpha=0.9, color='#2c3e50')
-        ax.plot(range(horizon_len), pred_returns[:horizon_len, i], 
-                label='Predicted', linewidth=1.5, alpha=0.8, linestyle='--', color='#e74c3c')
-        
-        ax.set_title(f'{tickers[i]}', fontsize=13, fontweight='bold')
-        ax.set_xlabel('Days Ahead', fontsize=11)
-        ax.set_ylabel('Standardized Log-Return', fontsize=11)
-        ax.legend(loc='upper right', fontsize=10)
-        ax.grid(True, alpha=0.3)
-    
-    fig.suptitle('Predicted vs Actual Returns (Every-step Re-encoding)', fontsize=15, y=1.01)
-    fig.tight_layout()
-    fig.savefig(output_dir / 'pred_vs_actual_returns.png', dpi=200)
-    plt.close(fig)
-    
-    # 3. Return correlation scatter plot
-    fig, ax = plt.subplots(figsize=(9, 9))
-    
-    # Flatten predictions and actuals for first few assets
-    pred_flat = pred_returns[:horizon_len, :n_plot].flatten()
-    true_flat = true_returns[:horizon_len, :n_plot].flatten()
-    
-    ax.scatter(true_flat, pred_flat, alpha=0.4, s=15, c='#3498db', edgecolors='none')
-    
-    # Add diagonal line
-    lims = [min(ax.get_xlim()[0], ax.get_ylim()[0]),
-            max(ax.get_xlim()[1], ax.get_ylim()[1])]
-    ax.plot(lims, lims, 'r--', alpha=0.75, linewidth=2, label='Perfect Prediction')
-    ax.set_xlim(lims)
-    ax.set_ylim(lims)
-    
-    # Calculate correlation
-    correlation = np.corrcoef(true_flat, pred_flat)[0, 1]
-    
-    ax.set_xlabel('Actual Returns', fontsize=13)
-    ax.set_ylabel('Predicted Returns', fontsize=13)
-    ax.set_title(f'Prediction Correlation: ρ = {correlation:.3f}', fontsize=15)
-    ax.legend(fontsize=11)
-    ax.grid(True, alpha=0.3)
-    ax.set_aspect('equal')
-    
-    fig.tight_layout()
-    fig.savefig(output_dir / 'pred_correlation.png', dpi=200)
-    plt.close(fig)
-    
-    # 4. MSE Bar Chart comparing all modes
-    mean_mses = eval_results.get('mean_mses', {})
-    if mean_mses:
-        fig, ax = plt.subplots(figsize=(10, 6))
-        
-        modes = list(mean_mses.keys())
-        mses = list(mean_mses.values())
-        bar_colors = [colors.get(m, '#7f8c8d') for m in modes]
-        
-        bars = ax.bar(range(len(modes)), mses, color=bar_colors, edgecolor='black', linewidth=1.2)
-        
-        # Highlight best mode
-        best_idx = modes.index(best_mode) if best_mode in modes else 0
-        bars[best_idx].set_edgecolor('#f1c40f')
-        bars[best_idx].set_linewidth(3)
-        
-        ax.set_xticks(range(len(modes)))
-        ax.set_xticklabels([m.replace('_', '\n') for m in modes], fontsize=11)
-        ax.set_ylabel('Mean MSE', fontsize=13)
-        ax.set_title('Prediction Error by Rollout Mode', fontsize=15)
-        ax.grid(True, alpha=0.3, axis='y')
-        
-        # Add value labels on bars
-        for bar, mse in zip(bars, mses):
-            height = bar.get_height()
-            ax.annotate(f'{mse:.4f}',
-                        xy=(bar.get_x() + bar.get_width() / 2, height),
-                        xytext=(0, 3), textcoords="offset points",
-                        ha='center', va='bottom', fontsize=10)
-        
-        fig.tight_layout()
-        fig.savefig(output_dir / 'mse_comparison.png', dpi=200)
-        plt.close(fig)
-        
-        print(f"  Saved: mse_vs_horizon.png, pred_vs_actual_returns.png, pred_correlation.png, mse_comparison.png")
-    else:
-        print(f"  Saved: mse_vs_horizon.png, pred_vs_actual_returns.png, pred_correlation.png")
-
-
-def train(
-    cfg: Config,
-    log_dir: Optional[str] = None,
-    checkpoint_path: Optional[str] = None,
-    device: str = 'cuda',
-) -> nn.Module:
-    """Main training function.
-    
-    Routes to appropriate training function based on environment type.
-    For finance data, uses DataLoader-based training.
-    For dynamical systems, uses environment stepping.
-    
-    Args:
-        cfg: Configuration object
-        log_dir: Directory for tensorboard logs and checkpoints
-        checkpoint_path: Path to checkpoint to resume from
-        device: Device to train on ('cpu', 'cuda', 'mps')
-        
-    Returns:
-        Trained model
-    """
-    # Route to finance training if ENV_NAME is "finance"
-    if cfg.ENV.ENV_NAME.lower() == "finance":
-        return train_finance(cfg, log_dir, checkpoint_path, device)
-    
-    print("Initializing training...")
-    
-    # Setup logging directory and save config
-    if log_dir is None:
-        log_dir = './runs/kae_finance'
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_dir = Path(log_dir) / timestamp
-    run_dir.mkdir(parents=True, exist_ok=True)
-    cfg.to_json(str(run_dir / 'config.json'))
-    
-    logger = MetricsLogger(run_dir)
-    
-    print("Setting random seed...")
-    torch.manual_seed(cfg.SEED)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(cfg.SEED)
-    # MPS doesn't have manual_seed, but manual_seed should be sufficient
-    
-    print("Creating environment...")
-    env = make_env(cfg)
-    env = VectorWrapper(env, cfg.TRAIN.BATCH_SIZE)
-    
-    # Get dt from environment config for ODE integration
-    env_name = cfg.ENV.ENV_NAME.lower()
-    if env_name == 'duffing':
-        dt = cfg.ENV.DUFFING.DT
-    elif env_name == 'pendulum':
-        dt = cfg.ENV.PENDULUM.DT
-    elif env_name == 'lotka_volterra':
-        dt = cfg.ENV.LOTKA_VOLTERRA.DT
-    elif env_name == 'lorenz63':
-        dt = cfg.ENV.LORENZ63.DT
-    elif env_name == 'parabolic':
-        dt = cfg.ENV.PARABOLIC.DT
-    elif env_name == 'lyapunov':
-        dt = cfg.ENV.LYAPUNOV.DT
-    else:
-        dt = 0.01  # default fallback
-    
-    print("Creating model...")
-    model = make_model(cfg, env.observation_size)
-    model = model.to(device)
-    model.dt = dt  # Store dt in model for use in ODE integration
-    
-    print("Building optimizer...")
-    optimizer = build_optimizer(model, cfg)
-    
-    start_step = 0
-    if checkpoint_path is not None:
-        checkpoint = torch.load(checkpoint_path, map_location=device)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        start_step = checkpoint.get('step', 0)
-        print(f"Resumed from checkpoint at step {start_step}")
-    
-    # Pre-generate random number generators for data
-    # Each batch gets a non-overlapping seed range to avoid collisions
-    # Batch i uses seeds: cfg.SEED + i * BATCH_SIZE to cfg.SEED + (i+1) * BATCH_SIZE - 1
-    num_batches = cfg.TRAIN.DATA_SIZE // cfg.TRAIN.BATCH_SIZE
-    rngs = [torch.Generator().manual_seed(cfg.SEED + i * cfg.TRAIN.BATCH_SIZE) for i in range(num_batches)]
-    
-    print(f"Training {cfg.MODEL.MODEL_NAME} on {cfg.ENV.ENV_NAME}")
-    print(f"Device: {device}")
-    print(f"Observation size: {env.observation_size}")
-    print(f"Target size: {cfg.MODEL.TARGET_SIZE}")
-    print(f"Batch size: {cfg.TRAIN.BATCH_SIZE}")
-    print(f"Total steps: {cfg.TRAIN.NUM_STEPS}")
-    print(f"Log directory: {run_dir}")
-    print("-" * 80)
-    
-    best_eval_final_error = float('inf')
-    
-    # Initialize tqdm
-    pbar = tqdm(range(start_step, cfg.TRAIN.NUM_STEPS), desc="Training")
-    
-    for step in pbar:
-        # Generate batch
-        rng = rngs[step % num_batches]
-        
-        if cfg.TRAIN.USE_SEQUENCE_LOSS:
-            # Generate sequence windows
-            x_seq = env.generate_sequence_batch(rng, window_length=cfg.TRAIN.SEQUENCE_LENGTH)
-            # x_seq has shape [batch_size, seq_len+1, obs_size]
-            x_seq = x_seq.to(device)
-            nx = None  # Not used for sequence loss
-            metrics = train_step(model, optimizer, x_seq, nx, cfg, dt)
-        else:
-            # Generate single transitions (backward compatibility)
-            x = env.reset(rng)
-            nx = env.step(x)
-            x = x.to(device)
-            nx = nx.to(device)
-            metrics = train_step(model, optimizer, x, nx, cfg, dt)
-        
-        logger.log_dict(metrics, step, prefix='train')
-        
-        pbar.set_postfix({
-            'loss': f"{metrics['loss']:.4f}",
-            'sparsity': f"{metrics['sparsity_ratio']:.3f}"
-        })
-
-        if step % 100 == 0:
-            if cfg.TRAIN.USE_SEQUENCE_LOSS:
-                pbar.write(
-                    f"Step {step} | "
-                    f"Loss: {metrics['loss']:.4f} | "
-                    f"Align: {metrics['alignment_loss']:.4f} | "
-                    f"Recon: {metrics['reconst_loss']:.4f} | "
-                    f"Pred: {metrics['prediction_loss']:.4f} | "
-                    f"Sparsity: {metrics['sparsity_ratio']:.3f}"
-                )
-            else:
-                pbar.write(
-                    f"Step {step} | "
-                    f"Loss: {metrics['loss']:.4f} | "
-                    f"Res: {metrics['residual_loss']:.4f} | "
-                    f"Recon: {metrics['reconst_loss']:.4f} | "
-                    f"Sparsity: {metrics['sparsity_ratio']:.3f}"
-                )
-        
-        # Periodic evaluation and checkpoint saving
-        if step % 500 == 0 or step == cfg.TRAIN.NUM_STEPS - 1:
-            # Get initial states for evaluation
-            if cfg.TRAIN.USE_SEQUENCE_LOSS:
-                eval_x = x_seq[:4, 0, :]  # First timestep of first 4 sequences
-            else:
-                eval_x = x[:4]
-            
-            eval_results = evaluate(model, eval_x, lambda s: env.step(s), num_steps=200)
-            logger.log_scalar('eval/mean_error', eval_results['mean_error'], step)
-            logger.log_scalar('eval/final_error', eval_results['final_error'], step)
-            
-            pbar.write(f"Step {step} | Eval Mean error: {eval_results['mean_error']:.4f}")
-            
-            # Save checkpoint
-            checkpoint_dict = {
-                'step': step,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'config': cfg.to_dict(),
-                'metrics': metrics,
-            }
-            
-            # Save latest checkpoint
-            torch.save(checkpoint_dict, run_dir / 'last.pt')
-            
-            # Save best checkpoint if eval error improved
-            if eval_results['final_error'] < best_eval_final_error:
-                best_eval_final_error = eval_results['final_error']
-                torch.save(checkpoint_dict, run_dir / 'checkpoint.pt')
-                pbar.write(f"  Saved best checkpoint (final eval error: {best_eval_final_error:.4f})")
-    
-    pbar.close()
-    
-    # Save final metrics and close logger
-    with open(run_dir / 'final_metrics.json', 'w') as f:
-        json.dump(metrics, f, indent=2)
-    
-    logger.close()
-
-    # Plot training metrics
-    print("-" * 80)
-    print("Plotting training metrics...")
-    from plot_training_metrics import plot_metrics
-    try:
-        plot_metrics(
-            log_dir=run_dir,
-            metrics_to_plot=None,  # Plot all metrics
-            save_path=run_dir / 'training_metrics.png'
-        )
-        print(f"Training metrics plot saved to {run_dir / 'training_metrics.png'}")
-    except Exception as e:
-        print(f"Warning: Failed to plot training metrics: {e}")
-        print("Continuing with evaluation...")
-
-    print("-" * 80)
-    print("Running standardized evaluation suite...")
-    print("Loading evaluation module...")
-    from evaluation import EvaluationSettings, evaluate_model
-    
-    def evaluate_checkpoint(checkpoint_path: Path, checkpoint_name: str):
-        """Load a checkpoint and evaluate it."""
-        if not checkpoint_path.exists():
-            print(f"  Skipping {checkpoint_name}: checkpoint not found at {checkpoint_path}")
-            return None
-        
-        print(f"\nEvaluating {checkpoint_name} checkpoint...", flush=True)
-        checkpoint = torch.load(checkpoint_path, map_location=device)
-        ckpt_step = checkpoint.get('step', 'unknown')
-        print(f"  Loaded checkpoint (step={ckpt_step}). Building eval env/model...", flush=True)
-        
-        # Load model from checkpoint (use unwrapped env for observation_size)
-        eval_env = make_env(cfg)
-        eval_model = make_model(cfg, eval_env.observation_size)
-        eval_model.load_state_dict(checkpoint['model_state_dict'])
-        eval_model = eval_model.to(device)
-        eval_model.eval()
-        eval_model.dt = dt
-        
-        # Create evaluation settings
-        eval_settings = EvaluationSettings()
-        eval_settings.systems = [cfg.ENV.ENV_NAME]
-        
-        # Evaluate
-        eval_dir = run_dir / f"evaluation_{checkpoint_name}"
-        print(f"  Calling evaluate_model() for systems={eval_settings.systems} ...", flush=True)
-        eval_results = evaluate_model(
-            model=eval_model,
-            cfg=cfg,
-            device=device,
-            settings=eval_settings,
-            output_dir=eval_dir,
-        )
-        print(f"  evaluate_model() finished for {checkpoint_name}.", flush=True)
-        
-        # Save results
-        results_file = run_dir / f"evaluation_results_{checkpoint_name}.json"
-        with open(results_file, "w") as f:
-            json.dump(eval_results, f, indent=2)
-        
-        # Print summary
-        primary_system = cfg.ENV.ENV_NAME
-        primary_metrics = eval_results.get(primary_system)
-        if primary_metrics is not None:
-            print(f"  {checkpoint_name.upper()} - Primary system ({primary_system}) MSE summary:")
-            for horizon in eval_settings.horizons:
-                if primary_system == "parabolic" and horizon > 100:
-                    continue
-                horizon_key = str(horizon)
-                no_re = primary_metrics["modes"]["no_reencode"]["horizons"].get(horizon_key)
-                every = primary_metrics["modes"]["every_step"]["horizons"].get(horizon_key)
-                best = primary_metrics["best_periodic"].get(horizon_key)
-                if no_re is None or every is None:
-                    continue
-                best_str = "best-PR=N/A" if best is None else f"best-PR={best['mean']:.4e} ({best['mode']})"
-                print(
-                    f"    Horizon {horizon}: "
-                    f"no-reencode={no_re['mean']:.4e}, "
-                    f"every-step={every['mean']:.4e}, "
-                    f"{best_str}"
-                )
-        
-        print(f"  Evaluation artifacts saved to {eval_dir}")
-        return eval_results
-    
-    # Evaluate both checkpoints
-    last_checkpoint = run_dir / 'last.pt'
-    best_checkpoint = run_dir / 'checkpoint.pt'
-    
-    eval_results_last = evaluate_checkpoint(last_checkpoint, "last")
-    eval_results_best = evaluate_checkpoint(best_checkpoint, "best")
-    
-    # Also save a combined summary
-    if eval_results_last is not None or eval_results_best is not None:
-        summary = {
-            "last_checkpoint": eval_results_last is not None,
-            "best_checkpoint": eval_results_best is not None,
-        }
-        summary_file = run_dir / "evaluation_summary.json"
-        with open(summary_file, "w") as f:
-            json.dump(summary, f, indent=2)
-    
-    print("-" * 80)
-    print(f"Training complete! Checkpoints saved to {run_dir}")
     
     return model
 
@@ -1073,91 +531,63 @@ def get_device(device_arg: str) -> str:
     # If explicitly CPU, use it
     if device_arg == 'cpu':
         return 'cpu'
-    
-    # If explicitly MPS, check availability
     if device_arg == 'mps':
-        if torch.backends.mps.is_available():
-            return 'mps'
-        else:
-            print("MPS not available, falling back to CPU")
-            return 'cpu'
-    
-    # If explicitly CUDA, check availability
+        return 'mps' if torch.backends.mps.is_available() else 'cpu'
     if device_arg == 'cuda':
-        if torch.cuda.is_available():
-            return 'cuda'
-        else:
-            print("CUDA not available, falling back to CPU")
-            return 'cpu'
+        return 'cuda' if torch.cuda.is_available() else 'cpu'
     
-    # Auto-detect: prefer MPS on macOS, then CUDA, then CPU
-    if device_arg == 'auto' or device_arg == 'cuda':
-        # Check MPS first (macOS)
-        if torch.backends.mps.is_available():
-            return 'mps'
-        # Then CUDA (Linux/Windows with GPU)
-        elif torch.cuda.is_available():
-            return 'cuda'
-        # Fallback to CPU
-        else:
-            return 'cpu'
-    
-    return device_arg
+    if torch.cuda.is_available():
+        return 'cuda'
+    elif torch.backends.mps.is_available():
+        return 'mps'
+    else:
+        return 'cpu'
 
 
 def main():
     """Command-line interface for training."""
-    print("Starting train.py...")
-    parser = argparse.ArgumentParser(description='Train Koopman Autoencoder')
+    parser = argparse.ArgumentParser(description='Train Koopman Autoencoder for Finance')
     
     # Configuration
-    parser.add_argument('--config', type=str, default='generic',
-                        choices=['default', 'generic', 'generic_sparse', 
-                                'generic_prediction', 'lista', 'lista_nonlinear',
-                                'finance_sparse'],
+    parser.add_argument('--config', type=str, default='finance_sparse',
+                        choices=['finance_sparse'],
                         help='Training configuration preset')
-    parser.add_argument('--env', type=str, default='duffing',
-                        choices=['duffing', 'pendulum', 'lotka_volterra', 
-                                'lorenz63', 'parabolic', 'lyapunov', 'finance'],
-                        help='Dynamical system environment (use "finance" for portfolio data)')
     
     # Training
-    parser.add_argument('--num_steps', type=int, default=20000,
+    parser.add_argument('--num_steps', type=int, default=5000,
                         help='Number of training steps')
     parser.add_argument('--batch_size', type=int, default=256,
                         help='Batch size')
     parser.add_argument('--lr', type=float, default=None,
-                        help='Learning rate (overrides config default)')
+                        help='Learning rate')
     parser.add_argument('--k_matrix_lr', type=float, default=None,
-                        help='K matrix learning rate (overrides config default)')
+                        help='K matrix learning rate')
     parser.add_argument('--seed', type=int, default=0,
                         help='Random seed')
     
     # Model
     parser.add_argument('--target_size', type=int, default=None,
-                        help='Latent dimension (overrides config default)')
+                        help='Latent dimension')
     parser.add_argument('--encoder_layers', type=str, default=None,
                         help='Encoder layers as comma-separated integers (e.g. "1024,1024")')
     parser.add_argument('--sparsity_coeff', type=float, default=None,
-                        help='Sparsity loss weight (overrides config default)')
+                        help='Sparsity loss weight')
     parser.add_argument('--reconst_coeff', type=float, default=None,
-                        help='Reconstruction loss weight (overrides config default)')
+                        help='Reconstruction loss weight')
     parser.add_argument('--res_coeff', type=float, default=None,
-                        help='Residual loss weight (overrides config default)')
+                        help='Residual loss weight')
     parser.add_argument('--pred_coeff', type=float, default=None,
-                        help='Prediction loss weight (overrides config default)')
-    parser.add_argument('--lista_alpha', type=float, default=None,
-                        help='LISTA soft-threshold alpha (overrides config default)')
+                        help='Prediction loss weight')
     
     # Training mode
     parser.add_argument('--pairwise', action='store_true',
-                        help='Use pairwise (single-step) training instead of sequence training')
-    parser.add_argument('--sequence_length', type=int, default=10,
-                        help='Sequence length for sequence training (overrides config default)')
+                        help='Use single-step training')
+    parser.add_argument('--sequence_length', type=int, default=None,
+                        help='Sequence length for training')
     parser.add_argument('--embedding_dim', type=int, default=None,
-                        help='Embedding dimension for finance data (overrides config default)')
+                        help='Embedding dimension (number of lagged timesteps in embedding)')
     parser.add_argument('--resample_weekly', action='store_true',
-                        help='Resample finance data to weekly frequency')
+                        help='Resample data to weekly')
     
     # Logging
     parser.add_argument('--log_dir', type=str, default='./runs/kae_finance',
@@ -1168,35 +598,22 @@ def main():
     # Device
     parser.add_argument('--device', type=str, default='auto',
                         choices=['cpu', 'cuda', 'mps', 'auto'],
-                        help='Device to train on (auto: auto-detect best available)')
+                        help='Device to train on')
     parser.add_argument('--data_path', type=str, default=None,
-                        help='Path to data directory (overrides config cache dir)')
+                        help='Path to data directory')
     
     args = parser.parse_args()
     
-    # Create config
     cfg = get_config(args.config)
-    
-    # For finance_sparse config, don't override ENV_NAME unless explicitly specified
-    # (finance_sparse already sets ENV_NAME to "finance")
-    if args.config == 'finance_sparse':
-        # Only override if user explicitly passed --env finance (or other)
-        # By default, keep the config's ENV_NAME
-        pass
-    else:
-        cfg.ENV.ENV_NAME = args.env
     
     cfg.TRAIN.NUM_STEPS = args.num_steps
     cfg.TRAIN.BATCH_SIZE = args.batch_size
     cfg.SEED = args.seed
     
-    # Override config with command-line args
     if args.lr is not None:
         cfg.TRAIN.LR = args.lr
-        # Default K matrix LR is 0.1 * LR if not specified
         if args.k_matrix_lr is None:
              cfg.TRAIN.K_MATRIX_LR = args.lr * 0.1
-
     if args.k_matrix_lr is not None:
         cfg.TRAIN.K_MATRIX_LR = args.k_matrix_lr
     if args.target_size is not None:
@@ -1211,13 +628,9 @@ def main():
         cfg.MODEL.RES_COEFF = args.res_coeff
     if args.pred_coeff is not None:
         cfg.MODEL.PRED_COEFF = args.pred_coeff
-    if args.lista_alpha is not None:
-        cfg.MODEL.ENCODER.LISTA.ALPHA = args.lista_alpha
     
-    # Training mode
     if args.pairwise:
         cfg.TRAIN.USE_SEQUENCE_LOSS = False
-        print("Using pairwise (single-step) training mode")
     if args.sequence_length is not None:
         cfg.TRAIN.SEQUENCE_LENGTH = args.sequence_length
     if args.embedding_dim is not None:
@@ -1227,20 +640,11 @@ def main():
     if args.data_path is not None:
         cfg.ENV.FINANCE.CACHE_DIR = args.data_path
     
-    # Auto-detect device
     device = get_device(args.device)
     print(f"Using device: {device}")
-    if device == 'cuda' and torch.cuda.is_available():
-        print(f"  GPU: {torch.cuda.get_device_name(0)}")
-    elif device == 'mps':
-        print("  Using Metal Performance Shaders (MPS)")
-    else:
-        print("  Using CPU")
     
-    # Train
     train(cfg, log_dir=args.log_dir, checkpoint_path=args.checkpoint, device=device)
 
 
 if __name__ == '__main__':
     main()
-
