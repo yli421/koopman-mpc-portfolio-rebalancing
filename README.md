@@ -1,6 +1,7 @@
 # Koopman-MPC Portfolio Rebalancing
 
 Dynamic portfolio optimization using **Koopman Autoencoders (KAE)** and **Model Predictive Control (MPC)**. This project leverages the Koopman operator theory to linearize complex financial market dynamics in a high-dimensional latent space, enabling multi-step return forecasting and convex MPC-based portfolio optimization.
+
 ![MPC demo](mpc_slow.gif)
 
 ## Overview
@@ -54,11 +55,11 @@ This script will:
 - Run backtests for all strategies.
 - Generate equity curve comparisons and metric tables (Sharpe Ratio, Returns, etc.).
 
-### 3. Configuration
+### Configuration
 System settings and hyperparameters can be adjusted in `config.py` or passed via command-line arguments.
 
-### 4. Testing
-Run the test suite to ensure everything is working correctly.
+### Unit Tests
+Unit test suite is implemented with pytest.
 
 ```bash
 uv run pytest

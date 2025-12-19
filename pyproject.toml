@@ -51,6 +51,10 @@ py-modules = [
     "utils",
     "config",
     "model",
+    "backtest",
+    "baselines",
+    "mpc",
+    "run_experiment",
 ]
 
 # CUDA PyTorch index - only used on Linux when explicitly requested

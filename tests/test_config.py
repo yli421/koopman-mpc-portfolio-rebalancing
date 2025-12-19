@@ -4,12 +4,14 @@ Tests configuration loading, modification, and registry functionality.
 """
 
 import pytest
+import os
+import json
 
 from config import (
     get_config,
     get_default_config,
-    get_train_generic_km_config,
-    get_train_lista_config,
+    get_train_finance_sparse_config,
+    Config
 )
 
 
@@ -25,8 +27,7 @@ def test_get_default_config():
     
     # Check ENV structure
     assert hasattr(cfg.ENV, "ENV_NAME")
-    assert hasattr(cfg.ENV, "DUFFING")
-    assert hasattr(cfg.ENV, "PARABOLIC")
+    assert hasattr(cfg.ENV, "FINANCE")
     
     # Check MODEL structure
     assert hasattr(cfg.MODEL, "MODEL_NAME")
@@ -48,16 +49,11 @@ def test_get_default_config():
 
 def test_get_named_configs():
     """Test that named configurations load correctly."""
-    # Test generic config
-    cfg_generic = get_train_generic_km_config()
-    assert cfg_generic.MODEL.MODEL_NAME == "GenericKM"
-    assert cfg_generic.MODEL.TARGET_SIZE == 64
-    
-    # Test LISTA config
-    cfg_lista = get_train_lista_config()
-    assert cfg_lista.MODEL.MODEL_NAME == "LISTAKM"
-    assert cfg_lista.MODEL.ENCODER.LISTA.NUM_LOOPS == 10
-    assert cfg_lista.MODEL.TARGET_SIZE == 1024 * 2
+    # Test finance_sparse config
+    cfg_finance = get_train_finance_sparse_config()
+    assert cfg_finance.ENV.ENV_NAME == "finance"
+    assert cfg_finance.MODEL.MODEL_NAME == "GenericKM"
+    assert cfg_finance.MODEL.TARGET_SIZE == 1024
 
 
 def test_config_registry():
@@ -65,11 +61,8 @@ def test_config_registry():
     cfg = get_config("default")
     assert cfg is not None
     
-    cfg_generic = get_config("generic")
-    assert cfg_generic.MODEL.MODEL_NAME == "GenericKM"
-    
-    cfg_lista = get_config("lista")
-    assert cfg_lista.MODEL.MODEL_NAME == "LISTAKM"
+    cfg_finance = get_config("finance_sparse")
+    assert cfg_finance.ENV.ENV_NAME == "finance"
     
     with pytest.raises(ValueError):
         get_config("nonexistent")
@@ -80,29 +73,24 @@ def test_config_modification():
     cfg = get_default_config()
     original_lr = cfg.TRAIN.LR
     
-    cfg.TRAIN.LR = 1e-4
-    assert cfg.TRAIN.LR == 1e-4
+    cfg.TRAIN.LR = 42
+    assert cfg.TRAIN.LR == 42
     assert cfg.TRAIN.LR != original_lr
 
 
-def test_lista_config():
-    """Test LISTA-specific configuration parameters."""
-    cfg = get_train_lista_config()
-    
-    # Check LISTA-specific fields exist and have correct values
-    assert cfg.MODEL.ENCODER.LISTA.NUM_LOOPS == 10
-    assert cfg.MODEL.ENCODER.LISTA.L == 1e4
-    assert cfg.MODEL.ENCODER.LISTA.ALPHA == 0.1
-    assert cfg.MODEL.ENCODER.LISTA.LINEAR_ENCODER is True
-
-
-def test_config_dt_extraction():
-    """Test that dt is correctly set in environment-specific configs."""
+def test_config_serialization(tmp_path):
+    """Test JSON serialization and deserialization."""
     cfg = get_default_config()
-    cfg.ENV.ENV_NAME = "duffing"
-    cfg.ENV.DUFFING.DT = 0.02
+    cfg.SEED = 42
+    cfg.TRAIN.LR = 0.005
     
-    # Check that dt is correctly set
-    assert cfg.ENV.DUFFING.DT == 0.02
-    assert cfg.ENV.ENV_NAME == "duffing"
-
+    # Save to JSON
+    json_path = tmp_path / "config.json"
+    cfg.to_json(str(json_path))
+    
+    # Load from JSON
+    new_cfg = Config.from_json(str(json_path))
+    
+    assert new_cfg.SEED == 42
+    assert new_cfg.TRAIN.LR == 0.005
+    assert new_cfg.ENV.ENV_NAME == cfg.ENV.ENV_NAME
