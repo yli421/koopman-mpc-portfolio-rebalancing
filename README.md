@@ -55,6 +55,13 @@ This script will:
 - Run backtests for all strategies.
 - Generate equity curve comparisons and metric tables (Sharpe Ratio, Returns, etc.).
 
+### 3. Visualizations
+Generate additional diagnostic and presentation-quality plots (forecast trajectories, Koopman eigenvalues, receding horizon demos, and risk-return frontiers) from a completed run:
+
+```bash
+uv run python plot_poster_visuals.py runs/kae_finance/YOUR_TIMESTAMP_FOLDER
+```
+
 ### Configuration
 System settings and hyperparameters can be adjusted in `config.py` or passed via command-line arguments.
 

@@ -160,101 +160,6 @@ def plot_forecast_trajectories(
     plt.close(fig)
 
 
-def plot_strategy_backtest(
-    model: torch.nn.Module,
-    env: FinanceEnv,
-    device: str,
-    output_dir: Path
-):
-    """Backtest a simple directional strategy (Re-encode every step)."""
-    print("Running strategy backtest...")
-    model.eval()
-    model = model.to(device)
-    
-    test_data = env.test_dataset.data.to(device)
-    test_dates = env.test_dataset.dates
-    n_steps = len(test_data) - 1
-    
-    # x0: [n_steps, obs_size]
-    x0 = test_data[:-1]
-    
-    batch_size = 256
-    all_preds = []
-    
-    with torch.no_grad():
-        for i in range(0, len(x0), batch_size):
-            batch = x0[i:i+batch_size]
-            # Predict next step
-            pred_batch = model.step_env(batch)
-            all_preds.append(pred_batch.cpu())
-            
-    predictions = torch.cat(all_preds, dim=0) # [n_steps, obs_size]
-    
-    # Extract returns
-    pred_returns = env.extract_current_returns(predictions) # [n_steps, n_assets] (Standardized)
-    
-    # Get actual next-step returns
-    true_next_step = test_data[1:].cpu()
-    true_returns = env.extract_current_returns(true_next_step) # [n_steps, n_assets] (Standardized)
-    
-    # De-standardize for calculation
-    pred_ret_real = env.destandardize_returns(pred_returns).numpy()
-    true_ret_real = env.destandardize_returns(true_returns).numpy()
-    
-    n_assets = env.n_assets
-    
-    # Benchmark Returns (Equal Weight)
-    bench_weights = np.ones_like(true_ret_real) / n_assets
-    bench_portfolio_ret = np.sum(bench_weights * true_ret_real, axis=1)
-    
-    # Strategy Returns
-    # Simple logic: if pred > 0, buy. Normalize weights to sum to 1?
-    # Or just invest in positive assets equally?
-    # Let's say we have capital 1. We allocate 1/N to each asset if pred > 0. 
-    # If pred <= 0, we keep that portion in cash (ret=0).
-    
-    signal = (pred_ret_real > 0).astype(float)
-    strat_weights = signal / n_assets 
-    strat_portfolio_ret = np.sum(strat_weights * true_ret_real, axis=1)
-    
-    # Cumulative Returns
-    bench_cum = np.cumsum(bench_portfolio_ret)
-    strat_cum = np.cumsum(strat_portfolio_ret)
-    
-    # Plot
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    dates = test_dates[1:]
-    
-    ax.plot(dates, np.exp(bench_cum), label='Benchmark (Buy & Hold)', color='gray', linewidth=1.5)
-    ax.plot(dates, np.exp(strat_cum), label='Koopman Directional Strategy', color='#2ecc71', linewidth=2)
-    
-    ax.set_title("Strategy Performance: Koopman 1-Step Forecast", fontsize=14)
-    ax.set_ylabel("Portfolio Value ($)")
-    ax.set_xlabel("Date")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    
-    # Add Sharpe Ratio annotation
-    def sharpe(rets):
-        return np.mean(rets) / (np.std(rets) + 1e-8) * np.sqrt(52 if env.metadata.get('resample_weekly') else 252)
-        
-    s_bench = sharpe(bench_portfolio_ret)
-    s_strat = sharpe(strat_portfolio_ret)
-    
-    textstr = f'Sharpe Ratios:\nBenchmark: {s_bench:.2f}\nKoopman: {s_strat:.2f}'
-    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-    ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=10,
-            verticalalignment='top', bbox=props)
-            
-    fig.autofmt_xdate()
-    plt.tight_layout()
-    
-    save_path = output_dir / "poster_strategy_backtest.png"
-    plt.savefig(save_path, dpi=300)
-    print(f"Saved {save_path}")
-    plt.close(fig)
-
 def plot_mpc_receding_horizon(
     model: torch.nn.Module,
     env: FinanceEnv,
@@ -565,7 +470,6 @@ def main():
     
     # Plots
     plot_forecast_trajectories(model, env, device, run_dir, horizon=50)
-    plot_strategy_backtest(model, env, device, run_dir)
     plot_mpc_receding_horizon(model, env, device, run_dir)
     plot_eigenvalues(model, device, run_dir)
     plot_risk_return_frontier(model, env, device, run_dir, cfg)
